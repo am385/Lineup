@@ -190,6 +190,33 @@ public sealed class SweepInvariantTests
         Assert.Equal(2, strictExit);
     }
 
+    /// <summary>Remote processing errors fail the zero-product-failures gate instead of becoming accepted source outages.</summary>
+    [Theory]
+    [InlineData(502, "remote_http_error")]
+    [InlineData(502, "source_error")]
+    [InlineData(502, "media_startup_failed")]
+    public void RemoteProcessingFailureCannotPassStrictGate(int status, string code)
+    {
+        // Arrange
+        var now = DateTimeOffset.UnixEpoch;
+        var category = SweepPolicy.StartupCategory(status, code);
+        var startup = new StartupOutcome(category, status, code, "acquisition", "Remote processing failed.", now, now, 0, null, false, false);
+        var result = new ChannelAttemptResult("target", "1", "One", 1, false, "not-applicable", 0, startup.Message, null, startup, 1, "startup", "product-startup-defect");
+        var run = CompletedRun(SweepVerdict.InitialServerFailure) with { Options = new() { MaximumProductFailures = 0 } };
+        run.Attempts[0].Result = result;
+
+        // Act
+        var verdict = SweepPolicy.Classify(result, []);
+        run.Attempts[0].Verdict = verdict;
+        var exit = SweepPolicy.ExitCode(run);
+
+        // Assert
+        Assert.Equal("server-failure", category);
+        Assert.Equal(SweepVerdict.InitialServerFailure, verdict);
+        Assert.Equal(2, exit);
+        Assert.False(result.AvPassed);
+    }
+
     /// <summary>A clean rerun cannot erase emergency cleanup or a capacity-release restart.</summary>
     [Fact]
     public void RecoveryRetainsPermanentViolation()

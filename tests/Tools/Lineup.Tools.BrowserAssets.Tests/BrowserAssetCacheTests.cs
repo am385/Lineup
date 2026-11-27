@@ -376,6 +376,10 @@ public sealed class BrowserAssetCacheTests
             RedirectStandardOutput = true,
             RedirectStandardError = true
         };
+        // Reusable SDK servers can outlive the command and retain the temporary project's working directory.
+        start.Environment["MSBUILDDISABLENODEREUSE"] = "1";
+        start.Environment["DOTNET_CLI_USE_MSBUILD_SERVER"] = "0";
+        start.Environment["UseSharedCompilation"] = "false";
         foreach (var argument in arguments)
         {
             start.ArgumentList.Add(argument);

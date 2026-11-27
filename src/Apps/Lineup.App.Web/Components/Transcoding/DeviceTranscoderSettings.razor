@@ -209,6 +209,26 @@
                     <div class="form-text">@Text["Transcoding_DeviceAc4Help"]</div>
                 }
             </div>
+            <div class="col-12">
+                <div class="form-check mb-2">
+                    <input id="@($"{IdPrefix}OverrideAc4TimestampCompensation-{Index}")" class="form-check-input" type="checkbox" @bind="Settings.OverrideAc4TimestampCompensation" />
+                    <label class="form-check-label" for="@($"{IdPrefix}OverrideAc4TimestampCompensation-{Index}")">
+                        @Text["Transcoding_OverrideAc4TimestampCompensation"]
+                        @if (!Settings.OverrideAc4TimestampCompensation)
+                        {
+                            <span class="text-body-secondary">@Text["Transcoding_Inherits", Defaults.Ac4TimestampCompensation]</span>
+                        }
+                    </label>
+                </div>
+                @if (Settings.OverrideAc4TimestampCompensation)
+                {
+                    <div class="form-check form-switch">
+                        <input id="@($"{IdPrefix}Ac4TimestampCompensation-{Index}")" class="form-check-input" type="checkbox" @bind="Settings.Ac4TimestampCompensation" />
+                        <label class="form-check-label" for="@($"{IdPrefix}Ac4TimestampCompensation-{Index}")">@Text["Transcoding_Ac4TimestampCompensation"]</label>
+                    </div>
+                }
+                <div class="form-text">@Text["Transcoding_Ac4TimestampCompensationHelp"]</div>
+            </div>
         </div>
     </div>
 </div>

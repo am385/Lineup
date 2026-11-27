@@ -86,11 +86,13 @@ internal static class StreamingFlowGraphBuilder
                 related.Count == 0 && warmNodes.Contains(node.NodeId) ? StreamingFlowState.Warm
                     : !node.IsRunning ? StreamingFlowState.Unavailable
                     : related.Count > 1 ? StreamingFlowState.Shared
-                    : node.VideoEncoding is { Encoder: not "copy" } ? StreamingFlowState.Transcoding : StreamingFlowState.Active,
+                    : node.Processing?.Transcodes == true || node.VideoEncoding is { Encoder: not "copy" } ? StreamingFlowState.Transcoding : StreamingFlowState.Active,
                 details)
             {
                 ResourceIds = node.ResourceIds,
                 VideoEncodings = node.VideoEncoding is { } encoding ? [encoding] : [],
+                ProcessingOutcomes = node.Processing is { } processing ? [processing]
+                    : source ? [StreamProcessingSnapshot.Forward(related.FirstOrDefault()?.PhysicalInput)] : [],
                 ActiveChannels = related.Select(stream => stream.Channel).Distinct(StringComparer.Ordinal).ToArray(),
                 ActiveSessionCount = related.Count
             });
@@ -208,11 +210,13 @@ internal static class StreamingFlowGraphBuilder
             };
             nodes.Add(key, new(key, StreamingFlowLane.VirtualProcessing, "Reusable output", id.ToString(),
                 warm ? StreamingFlowState.Warm : related.Length > 1 ? StreamingFlowState.Shared
-                    : encoding is { Encoder: not "copy" } ? StreamingFlowState.Transcoding : StreamingFlowState.Active,
+                    : related.Any(stream => stream.Processing?.Transcodes == true) || context?.Processing?.Transcodes == true ||
+                        encoding is { Encoder: not "copy" } ? StreamingFlowState.Transcoding : StreamingFlowState.Active,
                 details)
             {
                 ResourceIds = related.SelectMany(stream => stream.ResourceIds).Concat(context?.ResourceIds ?? []).Distinct(StringComparer.Ordinal).ToArray(),
                 VideoEncodings = encoding is null ? [] : [encoding],
+                ProcessingOutcomes = related.Select(stream => stream.Processing).Append(context?.Processing).OfType<StreamProcessingSnapshot>().Distinct().ToArray(),
                 ActiveChannels = related.Select(stream => stream.Channel).Concat(context is null ? [] : [context.Channel]).Distinct(StringComparer.Ordinal).ToArray(),
                 ActiveSessionCount = related.Length
             });

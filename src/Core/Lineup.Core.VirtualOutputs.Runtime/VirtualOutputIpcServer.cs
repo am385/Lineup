@@ -762,6 +762,7 @@ public sealed class VirtualOutputIpcServer : BackgroundService
             PhysicalInput = report.PhysicalInput ?? current.PhysicalInput,
             PhysicalOutput = report.PhysicalOutput ?? current.PhysicalOutput,
             VirtualOutput = report.VirtualOutput ?? current.VirtualOutput,
+            Processing = report.Processing,
             RequestedVideoEncoder = report.VideoEncoding?.RequestedEncoder,
             ActiveVideoEncoder = report.VideoEncoding?.Encoder,
             HardwareFallbackApplied = report.VideoEncoding?.SoftwareFallbackApplied ?? false,

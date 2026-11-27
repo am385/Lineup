@@ -11,8 +11,8 @@ public interface ITunerStreamMultiplexer : ISharedStreamShutdown
     /// <summary>Subscribes within one overall source-acquisition deadline, dividing time among remaining candidates without limiting established stream lifetime.</summary>
     ValueTask<ResolvedTunerStream> SubscribeFirstAvailableAsync(ResolvedStreamingRoute route, CancellationToken cancellationToken);
 
-    /// <summary>Subscribes to a provider-owned physical acquisition.</summary>
-    ValueTask<Stream> SubscribeAsync(StreamAcquisitionDescriptor descriptor, StreamAcquisitionFactory acquisitionFactory, CancellationToken cancellationToken);
+    /// <summary>Subscribes to a provider-owned acquisition, optionally granting bounded startup grace to a processing input.</summary>
+    ValueTask<Stream> SubscribeAsync(StreamAcquisitionDescriptor descriptor, StreamAcquisitionFactory acquisitionFactory, CancellationToken cancellationToken, bool processingInput = false);
 
 }
 
@@ -34,7 +34,7 @@ public sealed class ResolvedTunerStream(ResolvedStreamingCandidate candidate, St
 /// </summary>
 public interface IEffectiveTunerStreamMultiplexer
 {
-    /// <summary>Subscribes to an effective provider-owned source.</summary>
+    /// <summary>Subscribes to an effective provider-owned source, optionally granting bounded startup grace to a processing input.</summary>
     ValueTask<Stream> SubscribeEffectiveAsync(
         StreamAcquisitionDescriptor descriptor,
         StreamAcquisitionFactory acquisitionFactory,
@@ -42,7 +42,8 @@ public interface IEffectiveTunerStreamMultiplexer
         MediaProbeResult source,
         PhysicalTranscodeProfile physicalProfile,
         LineupSettings settings,
-        CancellationToken cancellationToken
+        CancellationToken cancellationToken,
+        bool processingInput = false
     );
 
     /// <summary>Subscribes to a shared MPEG-TS output built from the effective physical source.</summary>
@@ -74,7 +75,6 @@ public interface IStreamProducerCorrelation
 /// </summary>
 public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffectiveTunerStreamMultiplexer
 {
-    private static readonly TimeSpan _candidateAcquisitionTimeout = TimeSpan.FromSeconds(10);
     private readonly IStreamingSessionGraph _graph;
     private readonly IMediaProcessFactory _processFactory;
     private readonly ILogger<TunerStreamMultiplexer> _logger;
@@ -122,7 +122,7 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
                 failures.Add(new TimeoutException("The overall source acquisition deadline was exhausted."));
                 break;
             }
-            var slice = TimeSpan.FromTicks(Math.Min(_candidateAcquisitionTimeout.Ticks, Math.Max(1, remaining.Ticks / (route.Candidates.Count - index))));
+            var slice = TimeSpan.FromTicks(Math.Max(1, remaining.Ticks / (route.Candidates.Count - index)));
             using var deadline = new CancellationTokenSource(slice, _timeProvider);
             using var acquisition = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token, overallDeadline.Token);
             using var attempt = Lineup.Core.Extensibility.Diagnostics.LineupTelemetry.Begin("source_candidate");
@@ -186,10 +186,13 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
     /// <param name="descriptor">The descriptor value.</param>
     /// <param name="acquisitionFactory">The acquisition factory value.</param>
     /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <param name="processingInput">Whether this subscription feeds a processor requiring bounded startup buffering.</param>
     /// <returns>The operation's result.</returns>
-    public async ValueTask<Stream> SubscribeAsync(StreamAcquisitionDescriptor descriptor, StreamAcquisitionFactory acquisitionFactory, CancellationToken cancellationToken)
+    public async ValueTask<Stream> SubscribeAsync(StreamAcquisitionDescriptor descriptor, StreamAcquisitionFactory acquisitionFactory, CancellationToken cancellationToken, bool processingInput = false)
     {
-        var lease = await _graph.AcquireAsync(descriptor, acquisitionFactory, cancellationToken);
+        var lease = processingInput
+            ? await _graph.AcquirePipelineAsync(descriptor, acquisitionFactory, [], TimeSpan.Zero, cancellationToken, processingInput: true)
+            : await _graph.AcquireAsync(descriptor, acquisitionFactory, cancellationToken);
         return new SessionOwnedStream(lease);
     }
 
@@ -216,13 +219,23 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
                 "source_not_found",
                 "The physical source channel is no longer available.",
                 retryable: false),
-            HttpRequestException httpException => CreateCandidateFailure(
+            InvalidDataException or InvalidOperationException => CreateCandidateFailure(
+                candidate,
+                PhysicalStreamFailureCategory.Error,
+                "source_error",
+                "The physical source returned invalid media or could not initialize stream processing.",
+                retryable: false),
+            HttpRequestException { StatusCode: { } status } => CreateCandidateFailure(
+                candidate,
+                PhysicalStreamFailureCategory.Error,
+                "source_http_error",
+                $"The physical source returned HTTP {(int)status}.",
+                retryable: true),
+            HttpRequestException => CreateCandidateFailure(
                 candidate,
                 PhysicalStreamFailureCategory.Unavailable,
                 "source_unavailable",
-                httpException.StatusCode is { } status
-                    ? $"The physical source returned HTTP {(int)status}."
-                    : "The physical source could not be reached.",
+                "The physical source could not be reached.",
                 retryable: true),
             _ => CreateCandidateFailure(
                 candidate,
@@ -252,6 +265,7 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
     /// <param name="physicalProfile">The physical profile value.</param>
     /// <param name="settings">The settings value.</param>
     /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <param name="processingInput">Whether this subscription feeds a processor requiring bounded startup buffering.</param>
     /// <returns>The operation's result.</returns>
     public async ValueTask<Stream> SubscribeEffectiveAsync(
         StreamAcquisitionDescriptor descriptor,
@@ -260,12 +274,13 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
         MediaProbeResult source,
         PhysicalTranscodeProfile physicalProfile,
         LineupSettings settings,
-        CancellationToken cancellationToken
+        CancellationToken cancellationToken,
+        bool processingInput = false
     )
     {
         if (!SourceDeinterlacePlanner.ShouldNormalize(source, physicalProfile))
         {
-            return await SubscribeAsync(descriptor, acquisitionFactory, cancellationToken);
+            return await SubscribeAsync(descriptor, acquisitionFactory, cancellationToken, processingInput);
         }
 
         var stage = CreateStage(
@@ -273,8 +288,11 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
             SourceDeinterlacePlanner.CreateArguments(source, physicalProfile),
             sourceName,
             physicalProfile.HardwareEncoding,
-            SourceDeinterlacePlanner.CreateArguments(source, physicalProfile with { HardwareEncoding = new() }));
-        var lease = await _graph.AcquireTransformAsync(descriptor, stage.Key, acquisitionFactory, stage.Transform, cancellationToken);
+            SourceDeinterlacePlanner.CreateArguments(source, physicalProfile with { HardwareEncoding = new() }),
+            CreatePhysicalAc4CopyPlan(source, physicalProfile), source);
+        var lease = processingInput
+            ? await _graph.AcquirePipelineAsync(descriptor, acquisitionFactory, [stage], TimeSpan.Zero, cancellationToken, processingInput: true)
+            : await _graph.AcquireTransformAsync(descriptor, stage.Key, acquisitionFactory, stage.Transform, cancellationToken);
         return new SessionOwnedStream(lease);
     }
 
@@ -314,7 +332,8 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
         {
             var physicalArguments = SourceDeinterlacePlanner.CreateArguments(source, physicalProfile);
             stages.Add(CreateStage("source-normalization", physicalArguments, sourceName, physicalProfile.HardwareEncoding,
-                SourceDeinterlacePlanner.CreateArguments(source, physicalProfile with { HardwareEncoding = new() })));
+                SourceDeinterlacePlanner.CreateArguments(source, physicalProfile with { HardwareEncoding = new() }),
+                CreatePhysicalAc4CopyPlan(source, physicalProfile), source));
             effectiveSource = SourceDeinterlacePlanner.CreateEffectiveSource(source, physicalProfile);
         }
 
@@ -324,6 +343,7 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
             .ToArray();
         var subtitles = effectiveSource.Tracks.Where(track => track.Type == MediaTrackType.Subtitle).ToArray();
         var sourceVideo = effectiveSource.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video);
+        var videoStreamCount = effectiveSource.Tracks.Count(track => track.Type == MediaTrackType.Video);
         var virtualArguments = MpegTsTranscodePlanner.CreateFfmpegArguments(
             new Uri("http://lineup.invalid/source"),
             sourceVideo?.Codec,
@@ -331,13 +351,15 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
             virtualProfile,
             subtitles,
             sourceVideo?.ScanType == VideoScanType.Interlaced,
-            sourceVideo?.FrameRate).ToList();
+            sourceVideo?.FrameRate,
+            videoStreamCount).ToList();
         virtualArguments[virtualArguments.IndexOf("http://lineup.invalid/source")] = "pipe:0";
         var softwareArguments = MpegTsTranscodePlanner.CreateFfmpegArguments(
             new Uri("http://lineup.invalid/source"), sourceVideo?.Codec, audioStreams, virtualProfile with { HardwareEncoding = new() },
-            subtitles, sourceVideo?.ScanType == VideoScanType.Interlaced, sourceVideo?.FrameRate).ToList();
+            subtitles, sourceVideo?.ScanType == VideoScanType.Interlaced, sourceVideo?.FrameRate, videoStreamCount).ToList();
         softwareArguments[softwareArguments.IndexOf("http://lineup.invalid/source")] = "pipe:0";
-        stages.Add(CreateStage("virtual-mpegts", virtualArguments, sourceName, virtualProfile.HardwareEncoding, softwareArguments));
+        stages.Add(CreateStage("virtual-mpegts", virtualArguments, sourceName, virtualProfile.HardwareEncoding, softwareArguments,
+            MpegTsAc4CopyPlan.Create(audioStreams.Select(track => track.CodecName), virtualProfile.Ac4Audio, videoStreamCount), effectiveSource));
 
         var lease = await _graph.AcquirePipelineAsync(descriptor, acquisitionFactory, stages, keepWarmPeriod, cancellationToken);
         return new SessionOwnedStream(lease);
@@ -348,13 +370,25 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
     /// <returns>A task that completes when the operation has finished.</returns>
     public Task StopAsync(CancellationToken cancellationToken) => _graph.StopAsync(cancellationToken);
 
-    private StreamTransformStage CreateStage(string stage, IReadOnlyList<string> arguments, string sourceName, HardwareEncodingSettings hardware, IReadOnlyList<string> softwareArguments)
+    private static MpegTsAc4CopyPlan CreatePhysicalAc4CopyPlan(MediaProbeResult source, PhysicalTranscodeProfile profile) =>
+        MpegTsAc4CopyPlan.Create(source.Tracks.Where(track => track.Type == MediaTrackType.Audio).Select(track => track.Codec),
+            profile.Ac4Audio, source.Tracks.Any(track => track.Type == MediaTrackType.Video) ? 1 : 0);
+
+    private StreamTransformStage CreateStage(
+        string stage,
+        IReadOnlyList<string> arguments,
+        string sourceName,
+        HardwareEncodingSettings hardware,
+        IReadOnlyList<string> softwareArguments,
+        MpegTsAc4CopyPlan ac4CopyPlan,
+        MediaProbeResult source
+    )
     {
         var effectiveHardware = hardware.Encoder != HardwareVideoEncoder.Software && arguments.Contains(HardwareVideoEncodingPlanner.GetEncoderName(hardware.Encoder)) ? hardware : null;
-        var settingsKey = JsonSerializer.Serialize(new { Arguments = arguments, Hardware = effectiveHardware });
+        var settingsKey = JsonSerializer.Serialize(new { Arguments = arguments, Hardware = effectiveHardware, Ac4PacketIds = ac4CopyPlan.PacketIds });
         return new StreamTransformStage(
             new StreamTransformKey(stage, settingsKey),
-            new FfmpegGraphTransform(new FfmpegStreamTransform(arguments, _processFactory, _logger, sourceName, hardware, softwareArguments),
+            new FfmpegGraphTransform(new FfmpegStreamTransform(arguments, _processFactory, _logger, sourceName, hardware, softwareArguments, ac4CopyPlan, source: source),
                 stage == "source-normalization" ? "source" : "output"));
     }
 

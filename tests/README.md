@@ -27,11 +27,38 @@ player destruction failures and isolation from replacement players.
 The dashboard-resource regressions cover visibility demand, non-overlapping callbacks, in-flight visibility changes and timer/listener cleanup.
 The streaming-graph regressions use the real cached Cytoscape bundle to cover card-to-card SVG connections, graph reconciliation,
 path highlighting, scroll preservation, resizing, and visibility-aware refresh/disposal. Build the Web app first to populate the hash-verified browser-asset cache.
+Active Streams operation badges report video and audio copy/encoding independently of transport pass-through/remux.
+Focused planner, producer, worker IPC, flow projection and component tests cover same-codec re-encoding, copied AC-4,
+mixed audio renditions, explicit absence versus incomplete discovery, stage attribution and selected-node track details.
+These reporting tests do not require live tuners or change encoding policy.
 
 Slate parser regressions additionally support native FFmpeg through `LINEUP_TEST_SLATE_FFMPEG`, an explicit executable path with drawtext support.
 With that variable set, `ProtectedContentSlateServiceTests` renders one synthetic frame per case and checks literal text, disabled expansion and filter isolation;
 it requires no tuner, network source or application deployment. Native cases explicitly skip when no executable is configured.
 Run these cases on both Windows and Linux when changing FFmpeg slate text encoding; fake process tests do not exercise the parser.
+
+Native MPEG-TS startup regressions use `LINEUP_TEST_MPEGTS_FFMPEG`, an explicit FFmpeg executable with lavfi, libx264 and AAC support.
+With that variable set, `FfmpegStreamDiagnosticsTests.NativeMpegTs_MidstreamJoin_DiscoversParametersBeforeOutput` generates a
+local transport with sparse program tables and video initialization, joins after its initial headers, and verifies complete
+input discovery and decoded audio/video for Copy and forced H.264. No broadcast recording, network, GPU or tuner is required.
+These cases explicitly skip when the executable is not configured.
+
+Shared-stream buffering regressions cover one-time transform-input, metadata-probe and hosted CMAF processing-input startup grace, unchanged byte/entry limits, ordinary viewer eviction,
+and the steady-state age deadline. AC-4 signaling tests verify buffered packets are batched without waiting for another live input chunk.
+Processing-input grace is bounded to 35 seconds to include remote startup draining; metadata operation deadlines remain unchanged.
+During that one-time grace, fragmented startup queues may compact up to 64 KiB of unread tail data without changing byte/aggregate/entry bounds,
+FIFO order or original timestamps. Regressions cover partial heads, independent readers, aggregate headroom, grace expiry and steady-state eviction.
+Hosted processing regressions cover raw and normalized source subscriptions, fragmented input delivery, the absolute startup deadline,
+and five-second steady-state eviction after the startup queue drains. CMAF media and caption pumps request this bounded protection explicitly;
+ordinary viewers and MPEG-TS outputs retain their existing buffering policy.
+Hardware output priming has the same bounded 35-second allowance; delayed readiness, deadline failure and caller cancellation release all owned processes without an unapproved software retry.
+FFmpeg process diagnostics tests cover blocked stdin sampling, bounded progress observation, genuine EOF, and propagation of failed input
+even when the media process exits successfully; nonzero process diagnostics retain precedence.
+Source failover tests verify a sole candidate can use the configured overall acquisition allowance after ten seconds of discovery,
+while multiple candidates retain fair shares, bounded timeout cleanup and caller-cancellation precedence.
+
+Software preset regressions verify the opt-in Ultra fast profile reaches FFmpeg without changing AC-4 Copy or bitrate limits.
+Very fast remains the default. Faster processing reduces compression efficiency; live throughput must still be measured on the deployment host.
 
 Ordinary CI and development/release publishing share `.github/workflows/validate.yml`. Both Linux and Windows run the full Release build/test gate,
 the browser regressions, formatting verification, and installed-worker smoke tests. The smoke tests use the hash-verified worker packages installed
@@ -55,12 +82,15 @@ The separate `Lineup.Integration.Streaming.Sweep.Tests` xunit project participat
 exercises only deterministic policies, persistence, ownership and reports; it never launches the live harness.
 
 Packaging regressions run in `Lineup.Tools.VirtualOutputWorkerPackager.Tests` as part of the solution gate. They use the installed SDK to publish tiny owned temporary projects and verify shared inventory, manifests, cache repair and real MSBuild publish/opt-out behavior without hardware.
-Temporary packaging SDK commands disable MSBuild node reuse, the CLI MSBuild server, and shared compilation in their child environment so nested publishers cannot retain deleted fixture working directories.
+Temporary packaging and browser-asset SDK commands disable MSBuild node reuse, the CLI MSBuild server, and shared compilation in their child environment so build processes cannot retain deleted fixture working directories.
 Worker publishing sets deployment mode with `PublishSelfContained`, not a global `SelfContained=false`: the latter can create distinct executable-reference build nodes that concurrently overwrite the same intermediate assembly. The real-SDK graph regression verifies one compilation per helper intermediate directory and preserves portable/self-contained runtime configurations.
 RID-specific worker publishing also sets `PublishRuntimeIdentifier`: project-reference negotiation can remove `RuntimeIdentifier`,
 otherwise causing executable helpers to infer the build host's architecture instead of the deployment target. The graph regression
 cross-publishes to a different architecture and verifies both worker and helper dependency manifests without executing foreign binaries.
 For installed Windows or Linux worker validation, set `LINEUP_TEST_WORKER_PACKAGE_ROOT` to a package tree before running `HdHomeRunWorkerProcessTests` or the `Worker_*` cases in `WebPlayerWorkerProcessTests`. These fixtures resolve hash-verified packaged workers instead of test-output assemblies and exercise local authenticated IPC, loopback HTTP and deterministic media cleanup. Explicit worker paths used by host-build tests take precedence. Leave the variable unset for ordinary source tests.
+Dedicated HDHomeRun source-failure regressions use the real worker HTTP endpoint and authenticated broker to verify acquisition
+errors return HTTP 502, while unavailable sources retain HTTP 503 and invalid requests retain HTTP 400.
+They also verify safe error payloads and require no live source or tuner hardware.
 
 Guide-reader regressions retain pooled concurrent connections and verify distinct native handles while every owner remains open,
 then begin independent read transactions. SQLite provider versions before 10.0.13 can lend the same pooled handle to two live owners

@@ -7,6 +7,143 @@ namespace Lineup.App.Web.Tests.Services;
 /// </summary>
 public class MpegTsTranscodePlannerTests
 {
+    /// <summary>Effective argument reporting distinguishes same-codec encoding from copy and never treats remux as codec conversion.</summary>
+    [Theory]
+    [InlineData(false, OutputAudioPolicy.Copy)]
+    [InlineData(false, OutputAudioPolicy.Ac3)]
+    [InlineData(true, OutputAudioPolicy.Copy)]
+    [InlineData(true, OutputAudioPolicy.Ac3)]
+    public void ProcessingDiagnostics_ActualMappings_ReportIndependentOperations(bool encodeVideo, OutputAudioPolicy audio)
+    {
+        // Arrange
+        var source = new MediaProbeResult(
+        [
+            new(2, MediaTrackType.Video, "h264", null, 1920, 1080, null, null),
+            new(7, MediaTrackType.Audio, "ac3", null, null, null, 6, 48000) { Language = "eng", Title = "Main" },
+            new(12, MediaTrackType.Audio, "ac4", null, null, null, 12, 46034)
+        ], null);
+        var profile = new VirtualTranscodeProfile { AlwaysTranscodeVideo = encodeVideo, Audio = audio, Ac4Audio = OutputAudioPolicy.Copy };
+        var arguments = MpegTsTranscodePlanner.CreateFfmpegArguments(_inputUri, "h264", [new(7, "ac3", 6), new(12, "ac4", 12)], profile);
+
+        // Act
+        var processing = MpegTsProcessingDiagnostics.Create(source, arguments);
+
+        // Assert
+        Assert.Equal(StreamTransportOperation.Remux, processing.Transport);
+        Assert.Equal(encodeVideo || audio != OutputAudioPolicy.Copy, processing.Transcodes);
+        Assert.True(processing.VideoKnown);
+        Assert.True(processing.AudioKnown);
+        Assert.Equal(encodeVideo ? "h264" : "copy", processing.Tracks[0].OutputCodec);
+        Assert.Equal(audio == OutputAudioPolicy.Copy ? "copy" : "ac3", processing.Tracks[1].OutputCodec);
+        Assert.Equal("copy", processing.Tracks[2].OutputCodec);
+        Assert.Equal([2, 7, 12], processing.Tracks.Select(track => track.SourceIndex));
+        Assert.Equal("eng", processing.Tracks[1].Language);
+        Assert.Equal("Main", processing.Tracks[1].Title);
+    }
+
+    /// <summary>Source-stage diagnostics retain only the video actually mapped and distinguish absent audio from incomplete discovery.</summary>
+    [Theory]
+    [InlineData(AudioDiscoveryStatus.Unknown, false)]
+    [InlineData(AudioDiscoveryStatus.DeclaredAbsent, true)]
+    [InlineData(AudioDiscoveryStatus.ExpectedMissing, false)]
+    public void ProcessingDiagnostics_SourceNormalization_UsesExactMappingAndDiscovery(AudioDiscoveryStatus discovery, bool audioKnown)
+    {
+        // Arrange
+        var source = new MediaProbeResult(
+        [
+            new(2, MediaTrackType.Video, "hevc", null, 1920, 1080, null, null),
+            new(8, MediaTrackType.Video, "hevc", null, 1920, 1080, null, null)
+        ], null)
+        { AudioDiscovery = discovery };
+        var arguments = SourceDeinterlacePlanner.CreateArguments(source, new PhysicalTranscodeProfile { AlwaysTranscodeVideo = true });
+
+        // Act
+        var processing = MpegTsProcessingDiagnostics.Create(source, arguments);
+
+        // Assert
+        Assert.Equal(2, Assert.Single(processing.Tracks).SourceIndex);
+        Assert.True(processing.Transcodes);
+        Assert.Equal(audioKnown, processing.AudioKnown);
+        Assert.Equal(StreamTransportOperation.Remux, processing.Transport);
+    }
+
+    /// <summary>Verifies copied AC-4 is retained and assigned to actual output positions, independently of video encoding and source indexes.</summary>
+    [Theory]
+    [InlineData(0, HardwareVideoEncoder.Software)]
+    [InlineData(2, HardwareVideoEncoder.Software)]
+    [InlineData(2, HardwareVideoEncoder.Qsv)]
+    public void Ac4Copy_MapsOnlyCopiedTracksToExplicitPids(int videoCount, HardwareVideoEncoder encoder)
+    {
+        // Arrange
+        AudioStreamInfo[] streams = [new(7, "aac", 2), new(12, "ac4", 12), new(24, "AC4", 6)];
+        var profile = new VirtualTranscodeProfile
+        {
+            Audio = OutputAudioPolicy.Eac3,
+            Ac4Audio = OutputAudioPolicy.Copy,
+            AlwaysTranscodeVideo = videoCount > 0,
+            HardwareEncoding = new() { Encoder = encoder },
+            Ac4TimestampCompensation = true
+        };
+
+        // Act
+        var arguments = MpegTsTranscodePlanner.CreateFfmpegArguments(
+            _inputUri, videoCount == 0 ? null : "hevc", streams, profile, sourceVideoStreamCount: videoCount);
+
+        // Assert
+        Assert.Contains("-copyinkf:a:1", arguments);
+        Assert.Contains("-copyinkf:a:2", arguments);
+        Assert.DoesNotContain("-copyinkf:a:0", arguments);
+        Assert.Contains($"{videoCount + 1}:{0x101 + videoCount}", arguments);
+        Assert.Contains($"{videoCount + 2}:{0x102 + videoCount}", arguments);
+        AssertOption(arguments, "-c:a:0", "eac3");
+        Assert.DoesNotContain("-ar:a:1", arguments);
+        Assert.DoesNotContain("-filter:a:1", arguments);
+    }
+
+    /// <summary>Verifies AC-4 encoding always uses 48 kHz while only opted-in transcodes receive timestamp compensation.</summary>
+    [Theory]
+    [InlineData("ac4", OutputAudioPolicy.Ac3, false)]
+    [InlineData("ac4", OutputAudioPolicy.Ac3, true)]
+    [InlineData("AC4", OutputAudioPolicy.Eac3, false)]
+    [InlineData("AC4", OutputAudioPolicy.Eac3, true)]
+    [InlineData("ac4", OutputAudioPolicy.Copy, false)]
+    [InlineData("ac4", OutputAudioPolicy.Copy, true)]
+    public void Ac4Resampling_AppliesOnlyToEncodedAc4(string sourceCodec, OutputAudioPolicy policy, bool compensate)
+    {
+        // Arrange
+        var profile = new VirtualTranscodeProfile { Audio = OutputAudioPolicy.Ac3, Ac4Audio = policy, Ac4TimestampCompensation = compensate };
+        AudioStreamInfo[] streams = [new(3, "aac", 2), new(7, sourceCodec, 6)];
+
+        // Act
+        var arguments = MpegTsTranscodePlanner.CreateFfmpegArguments(_inputUri, "hevc", streams, profile);
+
+        // Assert
+        AssertOption(arguments, "-c:a:0", "ac3");
+        Assert.DoesNotContain("-filter:a:0", arguments);
+        Assert.DoesNotContain("-ar:a:0", arguments);
+        if (policy == OutputAudioPolicy.Copy)
+        {
+            Assert.Contains("-copyinkf:a:1", arguments);
+            Assert.DoesNotContain("-filter:a:1", arguments);
+            Assert.DoesNotContain("-ar:a:1", arguments);
+        }
+        else
+        {
+            Assert.DoesNotContain("-copyinkf:a:1", arguments);
+            AssertOption(arguments, "-c:a:1", policy == OutputAudioPolicy.Ac3 ? "ac3" : "eac3");
+            AssertOption(arguments, "-ar:a:1", "48000");
+        }
+        if (compensate && policy != OutputAudioPolicy.Copy)
+        {
+            AssertOption(arguments, "-filter:a:1", "aresample=async=1");
+        }
+        else
+        {
+            Assert.DoesNotContain("-filter:a:1", arguments);
+        }
+        Assert.DoesNotContain("-filter:a:7", arguments);
+    }
+
     /// <summary>Verifies forced encoding constrains copy-eligible video with either software or GPU encoding.</summary>
     [Theory]
     [InlineData(false, HardwareVideoEncoder.Software, null)]
@@ -42,6 +179,32 @@ public class MpegTsTranscodePlannerTests
     }
 
     private static readonly Uri _inputUri = new("http://hdhomerun.local:5004/auto/v7.1");
+
+    /// <summary>Verifies the lower-work software profile reaches FFmpeg while retaining AC-4 Copy and bitrate policy.</summary>
+    [Theory]
+    [InlineData(VideoEncoderPreset.VeryFast, "veryfast")]
+    [InlineData(VideoEncoderPreset.UltraFast, "ultrafast")]
+    public void SoftwarePreset_ControlsEncodingWithoutChangingAc4Copy(VideoEncoderPreset preset, string expected)
+    {
+        // Arrange
+        var profile = new VirtualTranscodeProfile
+        {
+            ConvertHevcToH264 = true,
+            VideoPreset = preset,
+            Ac4Audio = OutputAudioPolicy.Copy
+        };
+
+        // Act
+        var arguments = MpegTsTranscodePlanner.CreateFfmpegArguments(
+            _inputUri, "hevc", [new AudioStreamInfo(1, "ac4", 12)], profile);
+
+        // Assert
+        AssertOption(arguments, "-c:v:0", "libx264");
+        AssertOption(arguments, "-preset", expected);
+        AssertOption(arguments, "-c", "copy");
+        Assert.DoesNotContain("-c:a:0", arguments);
+        AssertOption(arguments, "-maxrate", "10M");
+    }
 
     /// <summary>Verifies effective topology settings, rather than legacy app values, control MPEG-TS output.</summary>
     [Fact]
@@ -112,8 +275,8 @@ public class MpegTsTranscodePlannerTests
         AssertOption(arguments, "-c:a:1", "ac3");
         AssertOption(arguments, "-b:a:1", "448k");
         AssertOption(arguments, "-ac:a:1", "6");
-        AssertOption(arguments, "-analyzeduration", "1000000");
-        AssertOption(arguments, "-probesize", "1000000");
+        AssertOption(arguments, "-analyzeduration", "10000000");
+        AssertOption(arguments, "-probesize", "10000000");
         AssertOption(arguments, "-c:v:0", "libx264");
         AssertOption(arguments, "-preset", "veryfast");
         AssertOption(arguments, "-maxrate", "10M");

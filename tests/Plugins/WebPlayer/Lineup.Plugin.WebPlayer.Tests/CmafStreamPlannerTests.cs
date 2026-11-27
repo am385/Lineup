@@ -9,6 +9,53 @@ namespace Lineup.Plugin.WebPlayer.Tests;
 /// </summary>
 public class CmafStreamPlannerTests
 {
+    /// <summary>Verifies only opted-in encoded AC-4 renditions receive timestamp compensation and all encoded renditions retain 48 kHz output.</summary>
+    [Theory]
+    [InlineData("ac4", CmafPreferredAudio.Fallback, CmafFallbackAudio.Ac3, false)]
+    [InlineData("ac4", CmafPreferredAudio.Fallback, CmafFallbackAudio.Ac3, true)]
+    [InlineData("AC4", CmafPreferredAudio.Fallback, CmafFallbackAudio.Eac3, true)]
+    [InlineData("ac4", CmafPreferredAudio.Fallback, CmafFallbackAudio.AacStereo, true)]
+    [InlineData("ac4", CmafPreferredAudio.Source, CmafFallbackAudio.Ac3, false)]
+    [InlineData("ac4", CmafPreferredAudio.Source, CmafFallbackAudio.Ac3, true)]
+    public void Ac4Resampling_AppliesOnlyToEncodedAc4Renditions(string sourceCodec, CmafPreferredAudio preferred, CmafFallbackAudio fallback, bool compensate)
+    {
+        // Arrange
+        var source = Source("aac") with
+        {
+            Tracks = [Track(0, MediaTrackType.Video, "h264"), Track(3, MediaTrackType.Audio, "aac"), Track(7, MediaTrackType.Audio, sourceCodec) with { SampleRate = 46_034, Channels = 6 }]
+        };
+        var request = new CmafStreamRequest { PreferredAudio = preferred, FallbackAudio = fallback };
+        var profile = new VirtualTranscodeProfile { Ac4Audio = OutputAudioPolicy.Copy, Ac4TimestampCompensation = compensate };
+        var selection = CmafStreamPlanner.SelectTracks(source, request);
+
+        // Act
+        var arguments = CmafStreamPlanner.CreateArguments(profile, source, selection, request, "manifest.mpd");
+
+        // Assert
+        Assert.DoesNotContain("-filter:a:0", arguments);
+        if (preferred == CmafPreferredAudio.Source)
+        {
+            AssertOption(arguments, "-c:a:1", "copy");
+            Assert.DoesNotContain("-filter:a:1", arguments);
+            Assert.DoesNotContain("-ar:a:1", arguments);
+        }
+        else
+        {
+            AssertOption(arguments, "-ar:a:1", "48000");
+            AssertOption(arguments, "-ar:a:0", "48000");
+            Assert.Single(arguments, argument => argument == "-ar:a:1");
+        }
+        if (compensate && preferred != CmafPreferredAudio.Source)
+        {
+            AssertOption(arguments, "-filter:a:1", "aresample=async=1");
+        }
+        else
+        {
+            Assert.DoesNotContain("-filter:a:1", arguments);
+        }
+        Assert.DoesNotContain("-filter:a:7", arguments);
+    }
+
     /// <summary>Verifies the HEVC default applies only to effective HEVC video and never overrides an explicit video choice.</summary>
     [Theory]
     [InlineData("h264", true, null, "copy")]

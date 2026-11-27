@@ -125,6 +125,7 @@ internal static class DedicatedWorkerStartupFailureMapper
             VirtualOutputFailureCode.SourceInvalid => Create(StatusCodes.Status400BadRequest, "source_invalid", exception.Message, stage),
             VirtualOutputFailureCode.ProtectedContent => Create(StatusCodes.Status422UnprocessableEntity, "protected_content", exception.Message, stage),
             VirtualOutputFailureCode.SourceUnavailable => Create(StatusCodes.Status503ServiceUnavailable, "source_unavailable", exception.Message, stage),
+            VirtualOutputFailureCode.SourceError => Create(StatusCodes.Status502BadGateway, "source_error", exception.Message, stage),
             _ => Create(StatusCodes.Status503ServiceUnavailable, "broker_unavailable", exception.Message, stage)
         };
 

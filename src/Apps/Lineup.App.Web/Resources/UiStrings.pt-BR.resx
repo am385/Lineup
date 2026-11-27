@@ -1002,6 +1002,17 @@
   <data name="Streaming_NoConsumersAttached" xml:space="preserve"><value>Atualmente não há nenhum consumidor adherido.</value></data>
   <data name="Streaming_NodeAriaLabel" xml:space="preserve"><value>{0}, {1}, {2} sesiones ativas</value></data>
   <data name="Streaming_None" xml:space="preserve"><value>Nenhum</value></data>
+  <data name="Streaming_OperationAudioAbsent" xml:space="preserve"><value>Sem áudio</value></data>
+  <data name="Streaming_OperationAudioCopy" xml:space="preserve"><value>Cópia de áudio</value></data>
+  <data name="Streaming_OperationAudioTranscode" xml:space="preserve"><value>Transcodificação de áudio</value></data>
+  <data name="Streaming_OperationAudioUnknown" xml:space="preserve"><value>Áudio desconhecido</value></data>
+  <data name="Streaming_OperationPassThrough" xml:space="preserve"><value>Passagem direta</value></data>
+  <data name="Streaming_OperationRemux" xml:space="preserve"><value>Remux</value></data>
+  <data name="Streaming_OperationTransportUnknown" xml:space="preserve"><value>Transporte desconhecido</value></data>
+  <data name="Streaming_OperationVideoAbsent" xml:space="preserve"><value>Sem vídeo</value></data>
+  <data name="Streaming_OperationVideoCopy" xml:space="preserve"><value>Cópia de vídeo</value></data>
+  <data name="Streaming_OperationVideoTranscode" xml:space="preserve"><value>Transcodificação de vídeo</value></data>
+  <data name="Streaming_OperationVideoUnknown" xml:space="preserve"><value>Vídeo desconhecido</value></data>
   <data name="Streaming_OutputStreamComponents" xml:space="preserve"><value>Componentes do fluxo de saída</value></data>
   <data name="Streaming_RawPhysicalInput" xml:space="preserve"><value>Entrada física bruta</value></data>
   <data name="Streaming_RawPhysicalStreamComponents" xml:space="preserve"><value>Componentes de fluxo físico sem processar</value></data>
@@ -1035,6 +1046,8 @@
   <data name="Streaming_WarmProducerCountMany" xml:space="preserve"><value>{0} productores em espera ativa</value></data>
   <data name="Streaming_WarmProducerCountOne" xml:space="preserve"><value>{0} productor em espera ativa</value></data>
   <data name="Transcoding_Ac4Audio" xml:space="preserve"><value>Áudio AC-4</value></data>
+  <data name="Transcoding_Ac4TimestampCompensation" xml:space="preserve"><value>Compensação de timestamps AC-4 (experimental)</value></data>
+  <data name="Transcoding_Ac4TimestampCompensationHelp" xml:space="preserve"><value>Desativada por padrão. Ao transcodificar AC-4 no Lineup, permite adicionar ou remover amostras de áudio conforme os timestamps para investigar estalos ou desvio de sincronização. AC-4 copiado e outros codecs permanecem inalterados. A transcodificação AC-4 usa 48 kHz com esta opção ativada ou desativada. Salve e inicie uma nova sessão de reprodução para comparar.</value></data>
   <data name="Transcoding_AlwaysTranscodeVideo" xml:space="preserve"><value>Sempre transcodificar vídeo</value></data>
   <data name="Transcoding_AlwaysTranscodeVideoHelp" xml:space="preserve"><value>Recodifica todo vídeo em H.264 com o codificador e o limite de taxa de bits de vídeo selecionados. Áudio e dados de transporte são adicionais.</value></data>
   <data name="Transcoding_Audio" xml:space="preserve"><value>Áudio</value></data>
@@ -1091,6 +1104,7 @@
   <data name="Transcoding_MaximumVideoBitrate" xml:space="preserve"><value>Velocidade de bits máxima de video</value></data>
   <data name="Transcoding_NonAc4Audio" xml:space="preserve"><value>Áudio que não é AC-4</value></data>
   <data name="Transcoding_OverrideAc4Audio" xml:space="preserve"><value>Substituir áudio AC-4</value></data>
+  <data name="Transcoding_OverrideAc4TimestampCompensation" xml:space="preserve"><value>Substituir compensação de timestamps AC-4</value></data>
   <data name="Transcoding_OverrideAlwaysTranscodeVideo" xml:space="preserve"><value>Substituir transcodificação permanente de vídeo</value></data>
   <data name="Transcoding_OverrideBitrate" xml:space="preserve"><value>Substituir a taxa de bits</value></data>
   <data name="Transcoding_OverrideDeinterlacing" xml:space="preserve"><value>Substituir o desentrelaçamento</value></data>
@@ -1102,6 +1116,7 @@
   <data name="Transcoding_PresetFast" xml:space="preserve"><value>Rápido</value></data>
   <data name="Transcoding_PresetFaster" xml:space="preserve"><value>Mais rápido</value></data>
   <data name="Transcoding_PresetMedium" xml:space="preserve"><value>Médio</value></data>
+  <data name="Transcoding_PresetUltraFast" xml:space="preserve"><value>Ultrarrápido</value></data>
   <data name="Transcoding_PresetVeryFast" xml:space="preserve"><value>Muito rápido</value></data>
   <data name="Transcoding_Settings" xml:space="preserve"><value>Configurações de transcodificación</value></data>
   <data name="Transcoding_SoftwareEncoder" xml:space="preserve"><value>Software (padrão seguro)</value></data>

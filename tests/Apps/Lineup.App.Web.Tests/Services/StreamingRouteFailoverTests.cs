@@ -138,13 +138,55 @@ public sealed class StreamingRouteFailoverTests
             var aggregate = Assert.IsType<StreamAcquisitionException>(failure);
             var candidate = Assert.Single(aggregate.CandidateFailures);
             Assert.Equal(channel, candidate.ChannelId);
-            Assert.Equal(PhysicalStreamFailureCategory.Unavailable, candidate.Category);
-            Assert.Equal("source_unavailable", candidate.Code);
+            Assert.Equal(PhysicalStreamFailureCategory.Error, candidate.Category);
+            Assert.Equal("source_error", candidate.Code);
             Assert.DoesNotContain("test-token", candidate.Message, StringComparison.Ordinal);
             Assert.IsType<InvalidDataException>(Assert.Single(Assert.IsType<AggregateException>(aggregate.InnerException).InnerExceptions));
         }
         Assert.Empty(capacity.GetDiagnostics());
         Assert.Empty(graph.GetDiagnostics().Nodes);
+    }
+
+    /// <summary>Verifies a sole remote source can finish discovery after ten seconds within the configured overall allowance.</summary>
+    [Fact]
+    public async Task SubscribeFirstAvailableAsync_SoleSourceDiscovery_UsesRemainingOverallAllowance()
+    {
+        // Arrange
+        var clock = new AcquisitionClock();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var device = Substitute.For<IPhysicalTunerDevice>();
+        device.Snapshot.Returns(new PhysicalDeviceSnapshot { Id = PhysicalDeviceId.New(), Kind = "delayed", Name = "Delayed source", Capacity = new PhysicalTunerCapacity(1) });
+        device.OpenStreamAsync(Arg.Any<PhysicalStreamRequest>(), Arg.Any<CancellationToken>()).Returns(call => OpenAsync(call.Arg<CancellationToken>()));
+        var graph = new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance);
+        var multiplexer = new TunerStreamMultiplexer(graph, Substitute.For<IMediaProcessFactory>(), NullLogger<TunerStreamMultiplexer>.Instance, clock);
+        var pending = multiplexer.SubscribeFirstAvailableAsync(Route(
+            [Candidate(device, new SourceChannelId(device.Snapshot.Id, "1"), "http://source.invalid/1")]), TestContext.Current.CancellationToken).AsTask();
+        try
+        {
+            await started.Task.WaitAsync(TestContext.Current.CancellationToken);
+
+            // Act
+            clock.Advance(TimeSpan.FromMilliseconds(10100));
+            ready.TrySetResult();
+            await using var selected = await pending.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+
+            // Assert
+            Assert.Same(device, selected.Candidate.PhysicalDevice);
+            Assert.Equal(0, clock.ActiveTimerCount);
+        }
+        finally
+        {
+            ready.TrySetResult();
+            await graph.StopAsync(TestContext.Current.CancellationToken);
+        }
+
+        async ValueTask<IPhysicalStreamLease> OpenAsync(CancellationToken cancellationToken)
+        {
+            started.TrySetResult();
+            await ready.Task.WaitAsync(cancellationToken);
+            return new FakeLease(new BlockingStream());
+        }
     }
 
     /// <summary>Verifies stream headers and error bodies share a bounded per-candidate acquisition phase.</summary>
@@ -176,7 +218,7 @@ public sealed class StreamingRouteFailoverTests
             await remote.StreamStalled.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
 
             // Act
-            clock.Advance(TimeSpan.FromSeconds(9));
+            clock.Advance(TimeSpan.FromSeconds(hasFallback ? 9 : 19));
             Assert.False(operation.IsCompleted);
             clock.Advance(TimeSpan.FromSeconds(1));
 
@@ -463,7 +505,7 @@ public sealed class StreamingRouteFailoverTests
         var failure = Assert.Single(exception.CandidateFailures);
         Assert.Equal(channel.PhysicalDeviceId, failure.DeviceId);
         Assert.Equal(channel, failure.ChannelId);
-        Assert.Equal(PhysicalStreamFailureCategory.Unavailable, failure.Category);
+        Assert.Equal(PhysicalStreamFailureCategory.Error, failure.Category);
         Assert.Equal("source_unauthorized", failure.Code);
         Assert.False(failure.Retryable);
         Assert.DoesNotContain("test-token", failure.Message, StringComparison.Ordinal);

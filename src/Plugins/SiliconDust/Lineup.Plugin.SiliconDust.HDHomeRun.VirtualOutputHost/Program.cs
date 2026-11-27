@@ -186,6 +186,7 @@ static int GetFailureStatusCode(VirtualOutputFailureCode failureCode) =>
         VirtualOutputFailureCode.InvalidRequest => StatusCodes.Status400BadRequest,
         VirtualOutputFailureCode.SourceNotFound => StatusCodes.Status404NotFound,
         VirtualOutputFailureCode.SourceInvalid => StatusCodes.Status400BadRequest,
+        VirtualOutputFailureCode.SourceError => StatusCodes.Status502BadGateway,
         VirtualOutputFailureCode.ProtectedContent => StatusCodes.Status422UnprocessableEntity,
         _ => StatusCodes.Status503ServiceUnavailable
     };

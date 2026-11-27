@@ -838,7 +838,7 @@ public class ActiveStreamServiceTests
         [
             new MediaTrackMetadata(0, MediaTrackType.Video, "hevc", 8_000_000, 1920, 1080, null, null),
             new MediaTrackMetadata(1, MediaTrackType.Audio, "aac", 128_000, null, null, 2, 48_000),
-            new MediaTrackMetadata(2, MediaTrackType.Audio, "ac4", null, null, null, 8, 48_000)
+            new MediaTrackMetadata(2, MediaTrackType.Audio, "ac4", null, null, null, 8, 46_034)
         ],
         8_500_000);
         var settings = new LineupSettings
@@ -863,6 +863,8 @@ public class ActiveStreamServiceTests
         Assert.Equal("ac3", stream.Tracks[2].OutputCodec);
         Assert.Equal(448_000, stream.Tracks[2].OutputBitRate);
         Assert.Equal(6, stream.Tracks[2].OutputChannels);
+        Assert.Equal(48_000, stream.Tracks[2].OutputSampleRate);
+        Assert.Equal(46_034, source.Tracks[2].SampleRate);
     }
 
     /// <summary>Verifies active-stream metadata displays the effective topology virtual profile.</summary>

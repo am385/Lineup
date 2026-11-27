@@ -466,6 +466,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                 : ActiveStreamPlanFactory.CreateCmaf(sessionId, channel, startedAt, rawSource, source, selection, request, virtualProfile);
         activeStream = activeStream with
         {
+            Processing = null,
             ClientAddress = clientAddress,
             ClientId = request.ClientId,
             Flow = disabled
@@ -512,6 +513,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                             VideoEncoding = pendingOutput.ActiveVideoEncoder is { } encoder
                                 ? new VideoEncodingSnapshot(encoder, virtualProfile.HardwareEncoding.Encoder, pendingOutput.HardwareFallbackApplied)
                                 : null,
+                            Processing = pendingOutput.Processing,
                             ResourceIds = pendingOutput.Session is { } media
                                 ? OwnedMediaProcess.GetResourceIds(media.Process).Concat(media.CaptionProcess is { } captions ? OwnedMediaProcess.GetResourceIds(captions) : []).ToArray()
                                 : []
@@ -578,6 +580,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
             {
                 RequestedVideoEncoder = sharedOutput.ActiveVideoEncoder is null ? null : virtualProfile.HardwareEncoding.Encoder,
                 ActiveVideoEncoder = sharedOutput.ActiveVideoEncoder,
+                Processing = sharedOutput.Processing,
                 HardwareFallbackApplied = sharedOutput.HardwareFallbackApplied,
                 ResourceIds = sharedOutput.Session is { } resourceSession
                     ? OwnedMediaProcess.GetResourceIds(resourceSession.Process).Concat(resourceSession.CaptionProcess is { } captions ? OwnedMediaProcess.GetResourceIds(captions) : []).ToArray()
@@ -900,7 +903,8 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                                 subtitle.Language,
                                 subtitle.IsEmbeddedClosedCaptions)).ToArray()
                         };
-                        pendingOutput.Complete(session, usingSlate ? null : HardwareVideoEncodingPlanner.GetVideoEncoder(ffmpegArguments!), !usingSlate && hardwareFallbackApplied);
+                        pendingOutput.Complete(session, usingSlate ? null : HardwareVideoEncodingPlanner.GetVideoEncoder(ffmpegArguments!), !usingSlate && hardwareFallbackApplied,
+                            usingSlate ? null : ActiveStreamPlanFactory.CreateCmaf(sessionId, channel, startedAt, rawSource, source, selection, request, producerProfile).Processing);
                         return new ManagementPlaybackStartResult { Presentation = response };
                     }
                     await Task.Delay(100, producerToken);
@@ -958,6 +962,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                     sessionId, channel, startedAt, rawSource, source, selection, request, producerProfile) with
                 {
                     RequestedVideoEncoder = virtualProfile.HardwareEncoding.Encoder,
+                    Processing = null,
                     HardwareFallbackApplied = hardwareFallbackApplied,
                     Flow = CreatePhysicalFlow(selectedCandidate!, topologyRoute!.VirtualDevice.Id) with { ReusableOutputId = outputLease.OutputId }
                 });
@@ -1297,8 +1302,9 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                 source,
                 candidate.PhysicalProfile,
                 settings,
-                cancellationToken)
-            : _tunerStreamMultiplexer.SubscribeAsync(candidate.Acquisition, candidate.OpenAsync, cancellationToken);
+                cancellationToken,
+                processingInput: true)
+            : _tunerStreamMultiplexer.SubscribeAsync(candidate.Acquisition, candidate.OpenAsync, cancellationToken, processingInput: true);
 
     private static async Task EnsureInputPumpSucceededAsync(Task inputPumpTask)
     {
@@ -1322,7 +1328,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
 
     private async Task PumpSourceAsync(ResolvedStreamingCandidate candidate, Process process, CancellationToken cancellationToken, Action<string> sourceTerminated)
     {
-        await using var input = await _tunerStreamMultiplexer.SubscribeAsync(candidate.Acquisition, candidate.OpenAsync, cancellationToken);
+        await using var input = await _tunerStreamMultiplexer.SubscribeAsync(candidate.Acquisition, candidate.OpenAsync, cancellationToken, processingInput: true);
         await MediaStreamPump.PumpAsync(input, process, _logger, candidate.DiagnosticUri.AbsoluteUri, cancellationToken, sourceTerminated);
     }
 
@@ -1731,6 +1737,9 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
         /// <summary>Gets the primary video encoder from the ready producer's launched arguments, including for later shared viewers.</summary>
         public string? ActiveVideoEncoder { get; private set; }
 
+        /// <summary>Gets effective codec and transport operations retained for shared and warm viewers.</summary>
+        public StreamProcessingSnapshot? Processing { get; private set; }
+
         /// <summary>Gets whether the producer used the explicitly allowed software fallback.</summary>
         public bool HardwareFallbackApplied { get; private set; }
 
@@ -1816,13 +1825,14 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
         }
 
         /// <summary>Transfers pending resources into a ready media session.</summary>
-        public void Complete(CmafSession session, string? activeVideoEncoder = null, bool hardwareFallbackApplied = false)
+        public void Complete(CmafSession session, string? activeVideoEncoder = null, bool hardwareFallbackApplied = false, StreamProcessingSnapshot? processing = null)
         {
             lock (_gate)
             {
                 LifetimeToken.ThrowIfCancellationRequested();
                 Session = session;
                 ActiveVideoEncoder = activeVideoEncoder;
+                Processing = processing;
                 HardwareFallbackApplied = hardwareFallbackApplied;
                 _process = null;
                 _captionProcess = null;

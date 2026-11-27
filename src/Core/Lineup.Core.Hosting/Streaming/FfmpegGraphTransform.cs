@@ -31,6 +31,9 @@ internal sealed class FfmpegGraphTransform(FfmpegStreamTransform transform, stri
         public VideoEncodingSnapshot? VideoEncoding => output.VideoEncoding;
 
         /// <inheritdoc />
+        public StreamProcessingSnapshot? Processing => output.Processing;
+
+        /// <inheritdoc />
         public IReadOnlyList<string> ResourceIds => output.ResourceIds;
 
         /// <inheritdoc />

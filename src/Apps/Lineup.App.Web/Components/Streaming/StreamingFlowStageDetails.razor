@@ -2,7 +2,9 @@
     @if (Stage.Kind is StreamingFlowStageKind.SourceProcessing or StreamingFlowStageKind.OutputProcessing)
     {
         <div class="d-flex flex-wrap align-items-center gap-2">
-            <VideoEncoderBadge Encoding="Stage.VideoEncoding" />
+            <VideoEncoderBadge Encoding="Stage.VideoEncoding" ShowOperation="@(Stage.Processing is null)" />
+            <StreamProcessingBadges Outcomes="@(Stage.Processing is { } processing ? new[] { processing } : [])"
+                                    ShowVideo="@(Stage.Processing is not null)" ShowTracks="true" />
         </div>
     }
     <div class="streaming-flow-stage-media">

@@ -230,6 +230,7 @@ static async Task WriteBrokerFailureAsync(
         VirtualOutputFailureCode.SourceNotFound => StatusCodes.Status404NotFound,
         VirtualOutputFailureCode.SourceInvalid => StatusCodes.Status400BadRequest,
         VirtualOutputFailureCode.ProtectedContent => StatusCodes.Status422UnprocessableEntity,
+        VirtualOutputFailureCode.SourceError => StatusCodes.Status502BadGateway,
         _ => StatusCodes.Status503ServiceUnavailable
     };
     context.Response.StatusCode = status;
@@ -256,5 +257,6 @@ static string GetFailureCode(VirtualOutputFailureCode failureCode) =>
         VirtualOutputFailureCode.SourceNotFound => "source_not_found",
         VirtualOutputFailureCode.SourceInvalid => "source_invalid",
         VirtualOutputFailureCode.ProtectedContent => "protected_content",
+        VirtualOutputFailureCode.SourceError => "source_error",
         _ => "broker_unavailable"
     };

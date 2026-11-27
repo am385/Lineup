@@ -1002,6 +1002,17 @@
   <data name="Streaming_NoConsumersAttached" xml:space="preserve"><value>現在接続しているコンシューマーはありません。</value></data>
   <data name="Streaming_NodeAriaLabel" xml:space="preserve"><value>{0}、{1}、アクティブなセッション {2} 件</value></data>
   <data name="Streaming_None" xml:space="preserve"><value>なし</value></data>
+  <data name="Streaming_OperationAudioAbsent" xml:space="preserve"><value>音声なし</value></data>
+  <data name="Streaming_OperationAudioCopy" xml:space="preserve"><value>音声コピー</value></data>
+  <data name="Streaming_OperationAudioTranscode" xml:space="preserve"><value>音声変換</value></data>
+  <data name="Streaming_OperationAudioUnknown" xml:space="preserve"><value>音声不明</value></data>
+  <data name="Streaming_OperationPassThrough" xml:space="preserve"><value>パススルー</value></data>
+  <data name="Streaming_OperationRemux" xml:space="preserve"><value>リマックス</value></data>
+  <data name="Streaming_OperationTransportUnknown" xml:space="preserve"><value>トランスポート不明</value></data>
+  <data name="Streaming_OperationVideoAbsent" xml:space="preserve"><value>映像なし</value></data>
+  <data name="Streaming_OperationVideoCopy" xml:space="preserve"><value>映像コピー</value></data>
+  <data name="Streaming_OperationVideoTranscode" xml:space="preserve"><value>映像変換</value></data>
+  <data name="Streaming_OperationVideoUnknown" xml:space="preserve"><value>映像不明</value></data>
   <data name="Streaming_OutputStreamComponents" xml:space="preserve"><value>出力ストリームのコンポーネント</value></data>
   <data name="Streaming_RawPhysicalInput" xml:space="preserve"><value>未処理の物理入力</value></data>
   <data name="Streaming_RawPhysicalStreamComponents" xml:space="preserve"><value>未処理の物理ストリームコンポーネント</value></data>
@@ -1035,6 +1046,8 @@
   <data name="Streaming_WarmProducerCountMany" xml:space="preserve"><value>待機中のプロデューサー {0} 件</value></data>
   <data name="Streaming_WarmProducerCountOne" xml:space="preserve"><value>待機中のプロデューサー {0} 件</value></data>
   <data name="Transcoding_Ac4Audio" xml:space="preserve"><value>AC-4 音声</value></data>
+  <data name="Transcoding_Ac4TimestampCompensation" xml:space="preserve"><value>AC-4 タイムスタンプ補正（試験的）</value></data>
+  <data name="Transcoding_Ac4TimestampCompensationHelp" xml:space="preserve"><value>既定では無効です。Lineup で AC-4 をトランスコードする際、タイムスタンプに応じて音声サンプルを補充または削除し、ノイズや同期ずれを調査できます。コピーされる AC-4 と他のコーデックには影響しません。この設定にかかわらず AC-4 のトランスコードは 48 kHz です。保存後、新しい再生セッションを開始して比較してください。</value></data>
   <data name="Transcoding_AlwaysTranscodeVideo" xml:space="preserve"><value>映像を常にトランスコード</value></data>
   <data name="Transcoding_AlwaysTranscodeVideoHelp" xml:space="preserve"><value>選択したエンコーダーと映像ビットレート上限で、すべての映像を H.264 に再エンコードします。音声と転送の追加データは別途必要です。</value></data>
   <data name="Transcoding_Audio" xml:space="preserve"><value>音声</value></data>
@@ -1091,6 +1104,7 @@
   <data name="Transcoding_MaximumVideoBitrate" xml:space="preserve"><value>最大映像ビットレート</value></data>
   <data name="Transcoding_NonAc4Audio" xml:space="preserve"><value>AC-4 以外の音声</value></data>
   <data name="Transcoding_OverrideAc4Audio" xml:space="preserve"><value>AC-4 音声をオーバーライド</value></data>
+  <data name="Transcoding_OverrideAc4TimestampCompensation" xml:space="preserve"><value>AC-4 タイムスタンプ補正をオーバーライド</value></data>
   <data name="Transcoding_OverrideAlwaysTranscodeVideo" xml:space="preserve"><value>映像の常時トランスコードをオーバーライド</value></data>
   <data name="Transcoding_OverrideBitrate" xml:space="preserve"><value>ビットレートをオーバーライド</value></data>
   <data name="Transcoding_OverrideDeinterlacing" xml:space="preserve"><value>デインターレースをオーバーライド</value></data>
@@ -1102,6 +1116,7 @@
   <data name="Transcoding_PresetFast" xml:space="preserve"><value>高速</value></data>
   <data name="Transcoding_PresetFaster" xml:space="preserve"><value>より高速</value></data>
   <data name="Transcoding_PresetMedium" xml:space="preserve"><value>中</value></data>
+  <data name="Transcoding_PresetUltraFast" xml:space="preserve"><value>超高速</value></data>
   <data name="Transcoding_PresetVeryFast" xml:space="preserve"><value>非常に高速</value></data>
   <data name="Transcoding_Settings" xml:space="preserve"><value>トランスコード設定</value></data>
   <data name="Transcoding_SoftwareEncoder" xml:space="preserve"><value>ソフトウェア（安全な既定値）</value></data>

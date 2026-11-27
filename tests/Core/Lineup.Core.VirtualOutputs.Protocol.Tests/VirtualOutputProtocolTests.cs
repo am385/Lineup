@@ -6,6 +6,54 @@ namespace Lineup.Core.VirtualOutputs.Protocol.Tests;
 /// <summary>Verifies isolated virtual-output protocol negotiation and boundary validation.</summary>
 public sealed class VirtualOutputProtocolTests
 {
+    /// <summary>New operation diagnostics are optional, round-trip through IPC JSON, and reject malformed nested media.</summary>
+    [Theory]
+    [InlineData("valid", 0)]
+    [InlineData("transport", 1)]
+    [InlineData("codec", 1)]
+    [InlineData("null-tracks", 1)]
+    [InlineData("oversized", 1)]
+    public void Validate_ProcessingReport_RoundTripsAndValidatesNestedMetadata(string variant, int expectedErrors)
+    {
+        // Arrange
+        ActiveStreamTrack track = new(MediaTrackType.Audio, "ac4", variant == "codec" ? "" : "copy", null, null, null, null, 12, 12, 46034)
+        {
+            SourceIndex = 7,
+            Language = "eng",
+            OutputTitle = "Original"
+        };
+        var processing = new StreamProcessingSnapshot(
+            variant == "transport" ? (StreamTransportOperation)999 : StreamTransportOperation.Remux,
+            variant == "null-tracks" ? null! : variant == "oversized" ? Enumerable.Repeat(track, VirtualOutputProtocol.MaximumStreamStatusTrackCount + 1).ToArray() : [track])
+        {
+            AudioKnown = true,
+            VideoKnown = true
+        };
+        var report = new VirtualOutputStreamStatusReport
+        {
+            Session = new() { SessionId = VirtualOutputWorkerSessionId.New(), Generation = 1 },
+            RequestId = VirtualOutputStreamRequestId.New(),
+            StreamSessionId = StreamSessionId.New(),
+            WorkerMediaSessionId = "viewer",
+            Processing = processing
+        };
+
+        // Act
+        var wire = System.Text.Json.JsonSerializer.Deserialize<VirtualOutputStreamStatusReport>(System.Text.Json.JsonSerializer.Serialize(report))!;
+        var errors = VirtualOutputProtocolValidation.Validate(wire);
+
+        // Assert
+        Assert.Equal(expectedErrors, errors.Count);
+        if (variant == "valid")
+        {
+            Assert.True(wire.Processing!.AudioKnown);
+            Assert.True(wire.Processing.VideoKnown);
+            Assert.Equal(StreamTransportOperation.Remux, wire.Processing.Transport);
+            Assert.Equal(track, Assert.Single(wire.Processing.Tracks));
+        }
+        Assert.Empty(VirtualOutputProtocolValidation.Validate(report with { Processing = null }));
+    }
+
     /// <summary>Verifies the unreleased Lineup 3.0 contract keeps its initial schema and single worker protocol baseline.</summary>
     [Fact]
     public void ReleaseContracts_LineupThree_UseInitialVersions()

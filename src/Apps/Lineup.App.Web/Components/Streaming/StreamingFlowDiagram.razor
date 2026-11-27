@@ -90,6 +90,12 @@
             @RenderMetadata(details)
             <StreamResourceDetails Stage="@(new StreamingFlowPathStage(GetStageKind(selected.Lane), selected.Label, selected.Subtitle, []) { ResourceIds = selected.ResourceIds })"
                                    Snapshot="Resources" />
+            @if (paths.Length == 0 && selected.ProcessingOutcomes.Count > 0 && !selected.IsLogicalStage)
+            {
+                <div class="d-flex flex-wrap align-items-center gap-2">
+                    <StreamProcessingBadges Outcomes="selected.ProcessingOutcomes" ShowTracks="true" />
+                </div>
+            }
             @foreach (var path in paths)
             {
                 var boundary = IsProcessingBoundary(selected, path);
@@ -177,6 +183,10 @@
     private static StreamingFlowPathStage? GetDiagnosticStage(StreamingFlowNode node, StreamingFlowPath path)
     {
         var stage = path.Stages.SingleOrDefault(stage => stage.Kind == GetStageKind(node.Lane));
+        if (stage is not null && node.ProcessingOutcomes.Count == 1)
+        {
+            stage = stage with { Processing = node.ProcessingOutcomes[0] };
+        }
         if (stage?.Kind != StreamingFlowStageKind.OutputProcessing) return stage;
         var sharing = path.Stages.SingleOrDefault(stage => stage.Kind == StreamingFlowStageKind.Multiplexer);
         return stage with { Details = stage.Details.Concat(sharing?.Details ?? []).Distinct().ToArray() };
@@ -314,13 +324,20 @@
         {
             @foreach (var encoding in node.VideoEncodings)
             {
-                <VideoEncoderBadge Encoding="encoding" />
+                <VideoEncoderBadge Encoding="encoding" ShowOperation="@(node.ProcessingOutcomes.Count == 0)" />
             }
         }
-        @if (node.VideoEncodings.Count == 0 && node.ActiveSessionCount > 0 && !node.IsLogicalStage &&
+        @if (node.VideoEncodings.Count == 0 && node.ProcessingOutcomes.Count == 0 && node.ActiveSessionCount > 0 && !node.IsLogicalStage &&
             node.Lane is StreamingFlowLane.PhysicalProcessing or StreamingFlowLane.VirtualProcessing or StreamingFlowLane.Multiplexer)
         {
             <VideoEncoderBadge Encoding="null" />
+        }
+        @if (!node.IsLogicalStage && node.Lane is StreamingFlowLane.PhysicalProcessing or StreamingFlowLane.VirtualProcessing &&
+            (node.ActiveSessionCount > 0 || node.State == StreamingFlowState.Warm || node.ProcessingOutcomes.Count > 0))
+        {
+            <span class="d-flex flex-wrap gap-1">
+                <StreamProcessingBadges Outcomes="node.ProcessingOutcomes" ShowVideo="@(node.ProcessingOutcomes.Count > 0)" />
+            </span>
         }
         @if (node.ActiveChannels.Count > 0)
         {
@@ -392,9 +409,14 @@
     private string GetNodeAriaLabel(StreamingFlowNode node)
     {
         var label = Text["Streaming_NodeAriaLabel", node.Label, FormatState(node.State), node.ActiveSessionCount].Value;
+        if (!node.IsLogicalStage && node.Lane is StreamingFlowLane.PhysicalProcessing or StreamingFlowLane.VirtualProcessing &&
+            (node.ActiveSessionCount > 0 || node.State == StreamingFlowState.Warm || node.ProcessingOutcomes.Count > 0))
+        {
+            label = $"{label}, {string.Join(", ", StreamProcessingBadges.GetLabelKeys(node.ProcessingOutcomes, node.ProcessingOutcomes.Count > 0).Select(key => Text[key].Value))}";
+        }
         return node.VideoEncodings.Count > 0 && !node.IsLogicalStage
             ? $"{label}, {string.Join(", ", node.VideoEncodings.Select(encoding => encoding.Encoder))}"
-            : node.ActiveSessionCount > 0 && !node.IsLogicalStage &&
+            : node.ProcessingOutcomes.Count == 0 && node.ActiveSessionCount > 0 && !node.IsLogicalStage &&
                 node.Lane is StreamingFlowLane.PhysicalProcessing or StreamingFlowLane.VirtualProcessing or StreamingFlowLane.Multiplexer
                 ? $"{label}, {Text["Streaming_EncoderUnknown"]}"
                 : label;

@@ -35,6 +35,7 @@ internal static class TranscoderSettingDisplay
             VideoEncoderPreset.Faster => text["Transcoding_PresetFaster"],
             VideoEncoderPreset.Fast => text["Transcoding_PresetFast"],
             VideoEncoderPreset.Medium => text["Transcoding_PresetMedium"],
+            VideoEncoderPreset.UltraFast => text["Transcoding_PresetUltraFast"],
             _ => value.ToString()
         };
 }

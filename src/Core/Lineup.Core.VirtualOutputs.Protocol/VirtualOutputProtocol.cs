@@ -504,7 +504,10 @@ public enum VirtualOutputFailureCode
     SourceInvalid,
 
     /// <summary>The physical source is protected and cannot be streamed.</summary>
-    ProtectedContent
+    ProtectedContent,
+
+    /// <summary>A physical source reported an unexpected acquisition or processing error.</summary>
+    SourceError
 }
 
 /// <summary>Identifies the latest startup state of one worker-owned media presentation.</summary>
@@ -561,6 +564,9 @@ public sealed record VirtualOutputStreamStatusReport
 
     /// <summary>Gets the launched output video encoder after readiness, independently of physical source processing.</summary>
     public VideoEncodingSnapshot? VideoEncoding { get; init; }
+
+    /// <summary>Gets effective codec and transport operations of the worker output.</summary>
+    public StreamProcessingSnapshot? Processing { get; init; }
 
     /// <summary>Gets the latest worker startup stage.</summary>
     public VirtualOutputStreamStartupStage StartupStage { get; init; }

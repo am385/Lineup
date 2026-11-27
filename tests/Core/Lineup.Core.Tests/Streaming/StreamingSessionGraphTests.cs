@@ -339,14 +339,198 @@ public sealed class StreamingSessionGraphTests
         Assert.Single(graph.GetDiagnostics().RecentTerminations);
     }
 
+    /// <summary>Verifies transform inputs receive startup grace; ordinary viewers retain five-second eviction.</summary>
+    [Fact]
+    public async Task AcquirePipelineAsync_StartupPause_PreservesTransformInputButNotStalledViewer()
+    {
+        // Arrange
+        var clock = new ManualTimeProvider();
+        var graph = new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance, clock);
+        var source = new ControlledSourceStream();
+        var reader = new ReadTrackingStream(source);
+        var descriptor = CreateDescriptor(PhysicalDeviceId.New(), "7.1", capacity: 1);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var transform = new PausedStartupTransform(release.Task);
+        StreamAcquisitionFactory factory = _ => ValueTask.FromResult<IStreamSourceLease>(new TestSourceLease(reader));
+        var pending = graph.AcquirePipelineAsync(descriptor, factory,
+            [new(new StreamTransformKey("startup", "copy"), transform)], TimeSpan.Zero, TestContext.Current.CancellationToken).AsTask();
+
+        try
+        {
+            await transform.Started.Task.WaitAsync(TestContext.Current.CancellationToken);
+            await using var stalledViewer = await graph.AcquireAsync(descriptor, factory, TestContext.Current.CancellationToken);
+            source.Write([0x47, 1, 2, 3]);
+            await reader.WaitForReadCountAsync(2, TestContext.Current.CancellationToken);
+
+            // Act
+            clock.Advance(TimeSpan.FromMilliseconds(34999));
+            release.TrySetResult();
+            await using var output = await pending;
+            var bytes = new byte[4];
+            await output.Stream.ReadExactlyAsync(bytes, TestContext.Current.CancellationToken);
+
+            // Assert
+            Assert.Equal(new byte[] { 0x47, 1, 2, 3 }, bytes);
+            Assert.Equal(1, graph.GetDiagnostics().BufferEvictions);
+            await Assert.ThrowsAsync<IOException>(() => stalledViewer.Stream.ReadAsync(new byte[1], TestContext.Current.CancellationToken).AsTask());
+        }
+        finally
+        {
+            release.TrySetResult();
+            await graph.StopAsync(TestContext.Current.CancellationToken);
+        }
+    }
+
+    /// <summary>Verifies hosted processing inputs use an absolute startup deadline and retain ordinary viewer and steady-state eviction.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AcquirePipelineAsync_ProcessingInput_PreservesBoundedStartupAndSteadyState(bool expireDuringStartup)
+    {
+        // Arrange
+        var clock = new ManualTimeProvider();
+        var graph = new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance, clock);
+        var source = new ControlledSourceStream();
+        var reader = new ReadTrackingStream(source);
+        var descriptor = CreateDescriptor(PhysicalDeviceId.New(), "7.1", capacity: 1);
+        StreamAcquisitionFactory factory = _ => ValueTask.FromResult<IStreamSourceLease>(new TestSourceLease(reader));
+        await using var processing = await graph.AcquirePipelineAsync(descriptor, factory, [], TimeSpan.Zero, TestContext.Current.CancellationToken, processingInput: true);
+        await using var viewer = await graph.AcquireAsync(descriptor, factory, TestContext.Current.CancellationToken);
+
+        try
+        {
+            source.Write([0x47, 1, 2, 3]);
+            await reader.WaitForReadCountAsync(2, TestContext.Current.CancellationToken);
+
+            // Act
+            clock.Advance(TimeSpan.FromMilliseconds(34999));
+
+            // Assert
+            Assert.Equal(1, graph.GetDiagnostics().BufferEvictions);
+            await Assert.ThrowsAsync<IOException>(() => viewer.Stream.ReadAsync(new byte[1], TestContext.Current.CancellationToken).AsTask());
+            if (!expireDuringStartup)
+            {
+                var bytes = new byte[4];
+                await processing.Stream.ReadExactlyAsync(bytes, TestContext.Current.CancellationToken);
+                Assert.Equal(new byte[] { 0x47, 1, 2, 3 }, bytes);
+            }
+
+            // Act
+            clock.Advance(TimeSpan.FromMilliseconds(1));
+            if (!expireDuringStartup)
+            {
+                source.Write([0x47, 4, 5, 6]);
+                await reader.WaitForReadCountAsync(3, TestContext.Current.CancellationToken);
+                clock.Advance(TimeSpan.FromSeconds(5));
+            }
+
+            // Assert
+            Assert.Equal(2, graph.GetDiagnostics().BufferEvictions);
+            Assert.Equal(0, graph.GetDiagnostics().BufferedBytes);
+            await Assert.ThrowsAsync<IOException>(() => processing.Stream.ReadAsync(new byte[1], TestContext.Current.CancellationToken).AsTask());
+        }
+        finally
+        {
+            await graph.StopAsync(TestContext.Current.CancellationToken);
+        }
+    }
+
+    /// <summary>Verifies an external processing input can compact short startup reads without changing bytes or exempting normal viewers.</summary>
+    [Fact]
+    public async Task AcquirePipelineAsync_ProcessingInput_CompactsFragmentedStartup()
+    {
+        // Arrange
+        var clock = new ManualTimeProvider();
+        var graph = new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance, clock);
+        var source = new ControlledSourceStream();
+        var reader = new ReadTrackingStream(source);
+        var descriptor = CreateDescriptor(PhysicalDeviceId.New(), "7.1", capacity: 1);
+        StreamAcquisitionFactory factory = _ => ValueTask.FromResult<IStreamSourceLease>(new TestSourceLease(reader));
+        await using var processing = await graph.AcquirePipelineAsync(descriptor, factory, [], TimeSpan.Zero, TestContext.Current.CancellationToken, processingInput: true);
+        await using var healthy = await graph.AcquireAsync(descriptor, factory, TestContext.Current.CancellationToken);
+        var expected = new byte[2049 * 188];
+        var received = new byte[188];
+
+        try
+        {
+            // Act
+            for (var index = 0; index < 2049; index++)
+            {
+                var payload = Enumerable.Repeat((byte)(index % 251), 188).ToArray();
+                payload.CopyTo(expected, index * 188);
+                source.Write(payload);
+                await healthy.Stream.ReadExactlyAsync(received, TestContext.Current.CancellationToken);
+                Assert.Equal(payload, received);
+            }
+            clock.Advance(TimeSpan.FromSeconds(6));
+            var actual = new byte[expected.Length];
+            await processing.Stream.ReadExactlyAsync(actual, TestContext.Current.CancellationToken);
+
+            // Assert
+            Assert.Equal(expected, actual);
+            Assert.Equal(0, graph.GetDiagnostics().BufferEvictions);
+            Assert.Equal(0, graph.GetDiagnostics().BufferedBytes);
+        }
+        finally
+        {
+            await graph.StopAsync(TestContext.Current.CancellationToken);
+        }
+    }
+
+    /// <summary>Verifies metadata probes survive bounded startup backpressure without extending stalled viewer lifetime.</summary>
+    [Fact]
+    public async Task GetOrCreateAcquisitionMetadataAsync_StartupPause_PreservesProbeInputButNotStalledViewer()
+    {
+        // Arrange
+        var clock = new ManualTimeProvider();
+        var graph = new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance, clock);
+        var source = new ControlledSourceStream();
+        var reader = new ReadTrackingStream(source);
+        var descriptor = CreateDescriptor(PhysicalDeviceId.New(), "7.1", capacity: 1);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        StreamAcquisitionFactory factory = _ => ValueTask.FromResult<IStreamSourceLease>(new TestSourceLease(reader));
+        var pending = graph.GetOrCreateAcquisitionMetadataAsync(descriptor, factory, "probe", async (input, token) =>
+        {
+            started.SetResult();
+            await release.Task.WaitAsync(token);
+            var bytes = new byte[4];
+            await input.ReadExactlyAsync(bytes, token);
+            return bytes;
+        }, TestContext.Current.CancellationToken);
+
+        try
+        {
+            await started.Task.WaitAsync(TestContext.Current.CancellationToken);
+            await using var stalledViewer = await graph.AcquireAsync(descriptor, factory, TestContext.Current.CancellationToken);
+            source.Write([0x47, 1, 2, 3]);
+            await reader.WaitForReadCountAsync(2, TestContext.Current.CancellationToken);
+
+            // Act
+            clock.Advance(TimeSpan.FromMilliseconds(24999));
+            release.TrySetResult();
+            var result = await pending;
+
+            // Assert
+            Assert.Equal(new byte[] { 0x47, 1, 2, 3 }, result);
+            Assert.Equal(1, graph.GetDiagnostics().BufferEvictions);
+            await Assert.ThrowsAsync<IOException>(() => stalledViewer.Stream.ReadAsync(new byte[1], TestContext.Current.CancellationToken).AsTask());
+        }
+        finally
+        {
+            release.TrySetResult();
+            await graph.StopAsync(TestContext.Current.CancellationToken);
+        }
+    }
+
     /// <summary>Verifies shared allocations remain accounted until every reader releases its reference, including partially consumed heads.</summary>
     [Fact]
     public async Task BufferBudget_SharedPayload_CountsAllocationOnce()
     {
         // Arrange
         using var budget = new StreamBufferBudget(new(), TimeProvider.System);
-        var first = budget.Subscribe(() => { });
-        var second = budget.Subscribe(() => { });
+        var first = budget.Subscribe(_ => { });
+        var second = budget.Subscribe(_ => { });
         var payload = new byte[64 * 1024];
 
         // Act
@@ -366,13 +550,16 @@ public sealed class StreamingSessionGraphTests
     }
 
     /// <summary>Verifies a byte-limited stalled viewer does not interrupt a consuming viewer sharing its producer.</summary>
-    [Fact]
-    public async Task BufferBudget_SlowReader_EnforcesBytesWithoutBlockingHealthyReader()
+    [Theory]
+    [InlineData(0)]
+    [InlineData(20)]
+    public async Task BufferBudget_SlowReader_EnforcesBytesWithoutBlockingHealthyReader(int startupGraceSeconds)
     {
         // Arrange
         using var budget = new StreamBufferBudget(new() { SubscriberBufferMib = 1, GraphBufferMib = 4 }, TimeProvider.System);
-        var slow = budget.Subscribe(() => { });
-        var healthy = budget.Subscribe(() => { });
+        var evicted = new TaskCompletionSource<StreamBufferBudget.Eviction>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var slow = budget.Subscribe(snapshot => evicted.TrySetResult(snapshot), TimeSpan.FromSeconds(startupGraceSeconds));
+        var healthy = budget.Subscribe(_ => { });
         var destination = new byte[64 * 1024];
 
         // Act
@@ -386,6 +573,11 @@ public sealed class StreamingSessionGraphTests
         // Assert
         Assert.Equal(1, budget.Evictions);
         Assert.Equal(0, budget.RetainedBytes);
+        var snapshot = await evicted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.Equal("bytes", snapshot.Reason);
+        Assert.Equal(1024 * 1024, snapshot.QueuedBytes);
+        Assert.Equal(16, snapshot.QueuedEntries);
+        Assert.Equal(1024 * 1024, snapshot.SubscriberLimit);
         await Assert.ThrowsAsync<IOException>(() => slow.ReadAsync(destination, TestContext.Current.CancellationToken).AsTask());
     }
 
@@ -395,8 +587,9 @@ public sealed class StreamingSessionGraphTests
     {
         // Arrange
         using var budget = new StreamBufferBudget(new() { GraphBufferMib = 1 }, TimeProvider.System);
-        var slow = budget.Subscribe(() => { });
-        var healthy = budget.Subscribe(() => { });
+        var evicted = new TaskCompletionSource<StreamBufferBudget.Eviction>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var slow = budget.Subscribe(snapshot => evicted.TrySetResult(snapshot));
+        var healthy = budget.Subscribe(_ => { });
         for (var index = 0; index < 16; index++)
         {
             budget.Publish(new byte[64 * 1024], [slow]);
@@ -407,6 +600,10 @@ public sealed class StreamingSessionGraphTests
 
         // Assert
         Assert.Equal(1, budget.Evictions);
+        var snapshot = await evicted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.Equal("aggregate", snapshot.Reason);
+        Assert.Equal(1024 * 1024, snapshot.GraphBytes);
+        Assert.Equal(1024 * 1024, snapshot.GraphLimit);
         Assert.Equal(64 * 1024, budget.RetainedBytes);
         Assert.Equal(64 * 1024, await healthy.ReadAsync(new byte[64 * 1024], TestContext.Current.CancellationToken));
         Assert.Equal(0, budget.RetainedBytes);
@@ -420,7 +617,8 @@ public sealed class StreamingSessionGraphTests
         // Arrange
         var clock = new ManualTimeProvider();
         using var budget = new StreamBufferBudget(new(), clock);
-        var slow = budget.Subscribe(() => { });
+        var evicted = new TaskCompletionSource<StreamBufferBudget.Eviction>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var slow = budget.Subscribe(snapshot => evicted.TrySetResult(snapshot));
         budget.Publish(new byte[64 * 1024], [slow]);
 
         // Act
@@ -436,7 +634,257 @@ public sealed class StreamingSessionGraphTests
         // Assert
         Assert.Equal(0, budget.RetainedBytes);
         Assert.Equal(1, budget.Evictions);
+        var snapshot = await evicted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.Equal("age", snapshot.Reason);
+        Assert.Equal(TimeSpan.FromSeconds(5), snapshot.OldestAge);
+        Assert.Equal(64 * 1024, snapshot.QueuedBytes);
         await Assert.ThrowsAsync<IOException>(() => slow.ReadAsync(new byte[1], TestContext.Current.CancellationToken).AsTask());
+    }
+
+    /// <summary>Verifies startup age grace ends at a fixed deadline even if the source becomes idle.</summary>
+    [Fact]
+    public async Task BufferBudget_StartupGrace_ExpiresAtAbsoluteDeadline()
+    {
+        // Arrange
+        var clock = new ManualTimeProvider();
+        using var budget = new StreamBufferBudget(new(), clock);
+        var slow = budget.Subscribe(_ => { }, TimeSpan.FromSeconds(20));
+        budget.Publish(new byte[188], [slow]);
+
+        // Act
+        clock.Advance(TimeSpan.FromMilliseconds(19999));
+
+        // Assert
+        Assert.Equal(188, budget.RetainedBytes);
+        Assert.Equal(0, budget.Evictions);
+
+        // Act
+        clock.Advance(TimeSpan.FromMilliseconds(1));
+
+        // Assert
+        Assert.Equal(0, budget.RetainedBytes);
+        Assert.Equal(1, budget.Evictions);
+        await Assert.ThrowsAsync<IOException>(() => slow.ReadAsync(new byte[1], TestContext.Current.CancellationToken).AsTask());
+    }
+
+    /// <summary>Verifies draining a startup queue does not renew grace or weaken the steady-state age limit.</summary>
+    [Fact]
+    public async Task BufferBudget_StartupGrace_DrainDoesNotRenewSteadyStateDeadline()
+    {
+        // Arrange
+        var clock = new ManualTimeProvider();
+        using var budget = new StreamBufferBudget(new(), clock);
+        var reader = budget.Subscribe(_ => { }, TimeSpan.FromSeconds(20));
+        budget.Publish(new byte[188], [reader]);
+        await reader.ReadAsync(new byte[188], TestContext.Current.CancellationToken);
+        clock.Advance(TimeSpan.FromSeconds(19));
+        budget.Publish(new byte[188], [reader]);
+
+        // Act
+        clock.Advance(TimeSpan.FromMilliseconds(4999));
+
+        // Assert
+        Assert.Equal(188, budget.RetainedBytes);
+        Assert.Equal(0, budget.Evictions);
+
+        // Act
+        clock.Advance(TimeSpan.FromMilliseconds(1));
+
+        // Assert
+        Assert.Equal(0, budget.RetainedBytes);
+        Assert.Equal(1, budget.Evictions);
+        await Assert.ThrowsAsync<IOException>(() => reader.ReadAsync(new byte[1], TestContext.Current.CancellationToken).AsTask());
+    }
+
+    /// <summary>Verifies startup grace never bypasses the fixed queue-entry limit.</summary>
+    [Fact]
+    public async Task BufferBudget_StartupGrace_StillEnforcesEntryLimit()
+    {
+        // Arrange
+        using var budget = new StreamBufferBudget(new() { SubscriberBufferMib = 256, GraphBufferMib = 512 }, TimeProvider.System);
+        var evicted = new TaskCompletionSource<StreamBufferBudget.Eviction>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var slow = budget.Subscribe(snapshot => evicted.TrySetResult(snapshot), TimeSpan.FromSeconds(20));
+
+        // Act
+        for (var index = 0; index < 2049; index++)
+        {
+            budget.Publish(new byte[64 * 1024], [slow]);
+        }
+
+        // Assert
+        var snapshot = await evicted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.Equal("entries", snapshot.Reason);
+        Assert.Equal(2048, snapshot.QueuedEntries);
+        Assert.Equal(128 * 1024 * 1024, snapshot.QueuedBytes);
+        Assert.Equal(0, budget.RetainedBytes);
+        Assert.Equal(1, budget.Evictions);
+    }
+
+    /// <summary>Verifies startup fragmentation preserves ordered bytes, shared ownership and the original grace deadline.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task BufferBudget_StartupFragments_PreservesDataAndDeadline(bool expire)
+    {
+        // Arrange
+        var clock = new ManualTimeProvider();
+        using var budget = new StreamBufferBudget(new(), clock);
+        var slow = budget.Subscribe(_ => { }, TimeSpan.FromSeconds(35));
+        var healthy = budget.Subscribe(_ => { });
+        var expected = new byte[2049 * 188];
+        var received = new byte[188];
+
+        // Act
+        for (var index = 0; index < 2049; index++)
+        {
+            if (index == 2048)
+            {
+                clock.Advance(TimeSpan.FromMilliseconds(34999));
+            }
+            var payload = Enumerable.Repeat((byte)(index % 251), 188).ToArray();
+            payload.CopyTo(expected, index * 188);
+            budget.Publish(payload, [slow, healthy]);
+            Assert.Equal(188, await healthy.ReadAsync(received, TestContext.Current.CancellationToken));
+            Assert.Equal(payload, received);
+            if (index == 0)
+            {
+                Assert.Equal(1, await slow.ReadAsync(new byte[1], TestContext.Current.CancellationToken));
+            }
+        }
+
+        // Assert
+        Assert.Equal(0, budget.Evictions);
+        Assert.InRange(slow.Queue.Count, 1, 2048);
+        Assert.Equal(expected.Length, budget.RetainedBytes);
+        if (expire)
+        {
+            while (slow.Queue.Peek().Chunk.Payload.Length == 188)
+            {
+                await slow.ReadAsync(received, TestContext.Current.CancellationToken);
+            }
+            clock.Advance(TimeSpan.FromMilliseconds(1));
+            await Assert.ThrowsAsync<IOException>(() => slow.ReadAsync(new byte[1], TestContext.Current.CancellationToken).AsTask());
+            Assert.Equal(1, budget.Evictions);
+        }
+        else
+        {
+            var actual = new byte[expected.Length - 1];
+            var offset = 0;
+            while (offset < actual.Length)
+            {
+                offset += await slow.ReadAsync(actual.AsMemory(offset), TestContext.Current.CancellationToken);
+            }
+            Assert.Equal(expected[1..], actual);
+        }
+        Assert.Equal(0, budget.RetainedBytes);
+    }
+
+    /// <summary>Verifies large tail chunks do not prevent eligible startup compaction and ordered delivery of earlier fragments.</summary>
+    [Fact]
+    public async Task BufferBudget_StartupFragments_LargeTailPreservesEarlierCompactibleData()
+    {
+        // Arrange
+        using var budget = new StreamBufferBudget(new(), new ManualTimeProvider());
+        var slow = budget.Subscribe(_ => { }, TimeSpan.FromSeconds(35));
+        var expected = new byte[2047 * 188 + 2 * 64 * 1024];
+        var offset = 0;
+        for (var index = 0; index < 2048; index++)
+        {
+            var payload = Enumerable.Repeat((byte)(index % 251), index >= 2046 ? 64 * 1024 : 188).ToArray();
+            payload.CopyTo(expected, offset);
+            offset += payload.Length;
+            budget.Publish(payload, [slow]);
+        }
+
+        // Act
+        budget.Publish(new byte[188], [slow]);
+
+        // Assert
+        Assert.Equal(0, budget.Evictions);
+        var actual = new byte[expected.Length];
+        offset = 0;
+        while (offset < actual.Length)
+        {
+            offset += await slow.ReadAsync(actual.AsMemory(offset), TestContext.Current.CancellationToken);
+        }
+        Assert.Equal(expected, actual);
+        Assert.Equal(0, budget.RetainedBytes);
+    }
+
+    /// <summary>Verifies startup compaction preserves another reader's original allocations and releases both representations.</summary>
+    [Fact]
+    public async Task BufferBudget_StartupCompaction_PreservesOtherReaderOwnership()
+    {
+        // Arrange
+        using var budget = new StreamBufferBudget(new(), new ManualTimeProvider());
+        var compacted = budget.Subscribe(_ => { }, TimeSpan.FromSeconds(35));
+        var original = budget.Subscribe(_ => { }, TimeSpan.FromSeconds(35));
+        var expected = new byte[2049 * 188];
+
+        // Act
+        for (var index = 0; index < 2049; index++)
+        {
+            var payload = Enumerable.Repeat((byte)(index % 251), 188).ToArray();
+            payload.CopyTo(expected, index * 188);
+            budget.Publish(payload, index == 2048 ? [compacted] : [compacted, original]);
+        }
+        var actual = new byte[expected.Length];
+        var offset = 0;
+        while (offset < actual.Length)
+        {
+            offset += await compacted.ReadAsync(actual.AsMemory(offset), TestContext.Current.CancellationToken);
+        }
+
+        // Assert
+        Assert.Equal(0, budget.Evictions);
+        Assert.Equal(expected, actual);
+        Assert.Equal(2048 * 188, budget.RetainedBytes);
+        actual = new byte[2048 * 188];
+        offset = 0;
+        while (offset < actual.Length)
+        {
+            offset += await original.ReadAsync(actual.AsMemory(offset), TestContext.Current.CancellationToken);
+        }
+        Assert.Equal(expected[..actual.Length], actual);
+        Assert.Equal(0, budget.RetainedBytes);
+    }
+
+    /// <summary>Verifies fragmented queues retain entry eviction after startup and cannot allocate compaction outside the aggregate budget.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task BufferBudget_CompactionNotEligible_PreservesEntryAndAggregateLimits(bool exhaustAggregate)
+    {
+        // Arrange
+        var clock = new ManualTimeProvider();
+        using var budget = new StreamBufferBudget(new() { SubscriberBufferMib = 2, GraphBufferMib = 1 }, clock);
+        var slow = budget.Subscribe(_ => { }, TimeSpan.FromSeconds(35));
+        var other = budget.Subscribe(_ => { }, TimeSpan.FromSeconds(35));
+        var padding = new byte[1024 * 1024 - 2049 * 188];
+        if (!exhaustAggregate)
+        {
+            budget.Publish(new byte[188], [slow]);
+            await slow.ReadAsync(new byte[188], TestContext.Current.CancellationToken);
+            clock.Advance(TimeSpan.FromSeconds(36));
+        }
+        for (var index = 0; index < 2048; index++)
+        {
+            budget.Publish(new byte[188], [slow]);
+        }
+        if (exhaustAggregate)
+        {
+            budget.Publish(padding, [other]);
+        }
+
+        // Act
+        budget.Publish(new byte[188], [slow]);
+
+        // Assert
+        Assert.Equal(1, budget.Evictions);
+        await Assert.ThrowsAsync<IOException>(() => slow.ReadAsync(new byte[1], TestContext.Current.CancellationToken).AsTask());
+        Assert.Equal(exhaustAggregate ? padding.Length : 0, budget.RetainedBytes);
+        other.Close();
+        Assert.Equal(0, budget.RetainedBytes);
     }
 
     /// <summary>Verifies ordinary EOF preserves remaining payload and explicit disposal releases it without waiting for expiration.</summary>
@@ -447,7 +895,7 @@ public sealed class StreamingSessionGraphTests
     {
         // Arrange
         using var budget = new StreamBufferBudget(new(), TimeProvider.System);
-        var subscription = budget.Subscribe(() => { });
+        var subscription = budget.Subscribe(_ => { });
         budget.Publish(new byte[64 * 1024], [subscription]);
 
         // Act
@@ -1896,6 +2344,20 @@ public sealed class StreamingSessionGraphTests
                 Dispose();
                 return ValueTask.CompletedTask;
             }
+        }
+    }
+
+    private sealed class PausedStartupTransform(Task release) : IStreamTransform
+    {
+        /// <summary>Signals that the transform owns its input subscription.</summary>
+        public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <inheritdoc />
+        public async ValueTask<IStreamSourceLease> StartAsync(Stream input, CancellationToken cancellationToken)
+        {
+            Started.TrySetResult();
+            await release.WaitAsync(cancellationToken);
+            return new TestSourceLease(input);
         }
     }
 

@@ -7,6 +7,87 @@ namespace Lineup.App.Web.Tests.Services;
 /// </summary>
 public class SourceDeinterlacePlannerTests
 {
+    /// <summary>Verifies physical transforms preserve copied AC-4 while mapping only the first video, or no video for audio-only inputs.</summary>
+    [Theory]
+    [InlineData(false, HardwareVideoEncoder.Software)]
+    [InlineData(true, HardwareVideoEncoder.Software)]
+    [InlineData(true, HardwareVideoEncoder.Qsv)]
+    public void Ac4Copy_PhysicalMappingRetainsPackets(bool video, HardwareVideoEncoder encoder)
+    {
+        // Arrange
+        var tracks = new List<MediaTrackMetadata>();
+        if (video)
+        {
+            tracks.Add(new(3, MediaTrackType.Video, "hevc", null, 1920, 1080, null, null));
+            tracks.Add(new(5, MediaTrackType.Video, "h264", null, 640, 480, null, null));
+        }
+        tracks.Add(new(8, MediaTrackType.Audio, "aac", null, null, null, 2, 48_000));
+        tracks.Add(new(12, MediaTrackType.Audio, "ac4", null, null, null, 12, 46_034));
+        var profile = new PhysicalTranscodeProfile
+        {
+            AlwaysTranscodeVideo = video,
+            Audio = OutputAudioPolicy.Ac3,
+            Ac4Audio = OutputAudioPolicy.Copy,
+            HardwareEncoding = new() { Encoder = encoder }
+        };
+
+        // Act
+        var arguments = SourceDeinterlacePlanner.CreateArguments(new(tracks, null), profile);
+
+        // Assert
+        Assert.Contains("-copyinkf:a:1", arguments);
+        Assert.DoesNotContain("-copyinkf:a:0", arguments);
+        Assert.Contains(video ? "2:258" : "1:257", arguments);
+        AssertOption(arguments, "-c:a:0", "ac3");
+        Assert.DoesNotContain("-ar:a:1", arguments);
+    }
+
+    /// <summary>Verifies AC-4 at nonstandard or unknown rates is resampled only when encoded and metadata matches the delivered rate.</summary>
+    [Theory]
+    [InlineData("ac4", OutputAudioPolicy.Ac3, 46_034, false)]
+    [InlineData("ac4", OutputAudioPolicy.Ac3, 46_034, true)]
+    [InlineData("AC4", OutputAudioPolicy.Eac3, 48_000, true)]
+    [InlineData("ac4", OutputAudioPolicy.Ac3, null, false)]
+    [InlineData("ac4", OutputAudioPolicy.Copy, 46_034, false)]
+    [InlineData("ac4", OutputAudioPolicy.Copy, 46_034, true)]
+    public void Ac4Resampling_PhysicalAndVirtualMetadataMatchArguments(string sourceCodec, OutputAudioPolicy policy, int? sampleRate, bool compensate)
+    {
+        // Arrange
+        var audio = new MediaTrackMetadata(7, MediaTrackType.Audio, sourceCodec, null, null, null, 6, sampleRate);
+        var source = new MediaProbeResult([new MediaTrackMetadata(3, MediaTrackType.Audio, "aac", null, null, null, 2, 44_100), audio], null);
+        var profile = new PhysicalTranscodeProfile { Audio = OutputAudioPolicy.Eac3, Ac4Audio = policy, Ac4TimestampCompensation = compensate };
+
+        // Act
+        var arguments = SourceDeinterlacePlanner.CreateArguments(source, profile);
+        var effective = SourceDeinterlacePlanner.CreateEffectiveSource(source, profile);
+        var virtualSource = SourceDeinterlacePlanner.CreateVirtualMpegTsSource(source, new VirtualTranscodeProfile { Audio = profile.Audio, Ac4Audio = policy });
+
+        // Assert
+        Assert.Equal(44_100, effective.Tracks[0].SampleRate);
+        Assert.Equal(policy == OutputAudioPolicy.Copy ? sampleRate : 48_000, effective.Tracks[1].SampleRate);
+        Assert.Equal(effective.Tracks, virtualSource.Tracks);
+        Assert.Equal(sampleRate, audio.SampleRate);
+        Assert.DoesNotContain("-filter:a:0", arguments);
+        Assert.DoesNotContain("-ar:a:0", arguments);
+        if (policy == OutputAudioPolicy.Copy)
+        {
+            Assert.DoesNotContain("-filter:a:1", arguments);
+            Assert.DoesNotContain("-ar:a:1", arguments);
+        }
+        else
+        {
+            AssertOption(arguments, "-ar:a:1", "48000");
+        }
+        if (compensate && policy != OutputAudioPolicy.Copy)
+        {
+            AssertOption(arguments, "-filter:a:1", "aresample=async=1");
+        }
+        else
+        {
+            Assert.DoesNotContain("-filter:a:1", arguments);
+        }
+    }
+
     /// <summary>Verifies physical forcing creates the shared pre-multiplexer encoder without enabling deinterlacing or changing copied audio.</summary>
     [Theory]
     [InlineData(HardwareVideoEncoder.Software, "libx264")]

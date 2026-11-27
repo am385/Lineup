@@ -27,6 +27,17 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Install-Jellyf
 
 The script verifies the official release checksum and installs `ffmpeg.exe` and `ffprobe.exe` into the ignored repo-root `.ffmpeg` directory. Source builds add that directory to the Lineup process `PATH` automatically. Packaged Windows builds continue to use the `.ffmpeg` directory bundled beside the application. Restart the app after installation.
 
+AC-4 audio transcodes use an explicit 48 kHz output rate in both MPEG-TS stages and Web Player CMAF output. AC-4 decoding
+can legitimately expose intermediate rates such as 46,034 Hz; explicit resampling avoids automatic 44.1 kHz selection.
+Source metadata retains the reported rate; encoded output metadata reports 48 kHz.
+
+**AC-4 timestamp compensation (experimental)** is a separate, default-off Audio Transcoding setting, available globally
+and as an independent per-device override for either stage. When enabled for an AC-4 transcode, it adds per-output
+`aresample=async=1`, allowing timestamp-aware sample filling/trimming. A nonstandard source rate alone does not establish
+timestamp disagreement or justify enabling compensation. Copy mode and unrelated audio codecs remain unchanged.
+This only affects Lineup's own transcodes, not downstream Jellyfin conversion or FFmpeg's AC-4 probe/decoder.
+Save and start a new playback session when comparing on/off behavior; existing playback is not rewritten.
+
 ## Isolated-worker packaging
 
 Normal Web and TUI builds install the shipped isolated virtual-output workers into each host's `virtual-output-workers` directory, including Visual Studio builds and debugger launches.

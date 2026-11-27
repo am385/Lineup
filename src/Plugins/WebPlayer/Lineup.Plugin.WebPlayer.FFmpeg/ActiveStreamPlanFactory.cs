@@ -74,7 +74,8 @@ public static class ActiveStreamPlanFactory
                 : track.Channels.HasValue
                     ? Math.Min(track.Channels.Value, 6)
                     : null;
-            return CreateTrack(track, outputCodec, outputBitRate, outputChannels, track.SampleRate);
+            var outputSampleRate = outputCodec == "copy" ? track.SampleRate : AudioResamplePlanner.GetOutputSampleRate(track.Codec, track.SampleRate);
+            return CreateTrack(track, outputCodec, outputBitRate, outputChannels, outputSampleRate);
         }).ToArray();
 
         return CreateSnapshot(sessionId, channel, HostedStreamFormat.MpegTs, startedAtUtc, rawSource, source, tracks);
@@ -256,6 +257,13 @@ public static class ActiveStreamPlanFactory
         =>
         new(sessionId, channel, format, startedAtUtc, source.BitRate, tracks)
         {
+            Processing = format == HostedStreamFormat.Cmaf
+                ? new StreamProcessingSnapshot(StreamTransportOperation.Remux, tracks.Where(track => IsMappedOutput(track) && track.Type is MediaTrackType.Video or MediaTrackType.Audio).ToArray())
+                {
+                    VideoKnown = source.Tracks.Count > 0,
+                    AudioKnown = tracks.Any(track => IsMappedOutput(track) && track.Type == MediaTrackType.Audio) || source.AudioDiscovery == AudioDiscoveryStatus.DeclaredAbsent
+                }
+                : null,
             PhysicalInput = ToMediaSnapshot(rawSource),
             PhysicalOutput = ToMediaSnapshot(source),
             VirtualOutput = new ActiveStreamMediaSnapshot(

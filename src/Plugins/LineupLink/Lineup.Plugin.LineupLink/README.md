@@ -12,11 +12,23 @@ Dedicated Lineup Link connection bundles use the same effective client-facing UR
 
 Lineup Link manifest, lineup, and guide requests have a 30-second total timeout covering response headers and body, including error responses. Timeouts, malformed JSON, and unsupported remote protocol versions are reported as recoverable remote request failures so other configured physical devices can still activate; caller cancellation remains cancellation. Live MPEG-TS streams do not have this timeout. If a remote stream rejects a revoked, expired, or otherwise invalid access grant with HTTP 401 or 403, Lineup reports a non-retryable failure for that source and can continue to the next equivalent source. Device probing still reports rejected credentials explicitly.
 
+Unexpected remote HTTP errors and invalid media are not source-availability evidence. Lineup preserves these as acquisition
+errors, returning HTTP 502 with the original safe failure code on management routes, or `source_error` through dedicated
+workers. A failed route containing an unexpected error remains an error even if other candidates have no signal or capacity;
+a healthy equivalent source can still succeed. Explicit `source_unavailable`, no-signal, no-data, capacity and protection
+responses retain their existing classifications. Remote authorization rejection remains non-retryable and is not an outage.
+
 For management-hosted Lineup Link outputs, **Require HTTPS** selects which management-host transport is accepted and exported. A dedicated Lineup Link output derives this requirement from its client-facing public base URL rather than its internal listener transport. This permits an HTTPS public URL to terminate TLS at a trusted reverse proxy while the dedicated worker listens over private HTTP. The optional connection-bundle certificate pin is independent of the dedicated listener's server-certificate reference.
 
 ## Lineup Link
 
 A provider instance can add a **Lineup Link** virtual device and export its published lineup, optional guide, and post-output-transcode MPEG-TS streams through `/api/lineup-link/v2/virtual-devices/{virtualDeviceId}` when management-hosted or the equivalent path on its dedicated listener. A consuming instance imports the generated connection bundle into a **Lineup Link** physical device and may add a separately managed Lineup Link guide source. The virtual output uses Lineup's existing shared acquisition and MPEG-TS transformation graph, so consumers requesting the same effective source and output profile reuse the physical stream, physical normalization, and virtual transform.
+
+An output configured to **Copy** AC-4 retains its compressed audio and MPEG-TS identification even when video is encoded
+or other audio tracks are converted. The shared provider pipeline preserves copied AC-4 packets and repairs their program-map
+registration without a modified FFmpeg binary. The receiving instance still needs an AC-4-capable decoder or an appropriate
+audio conversion policy. Update the providing instance to obtain this fix: updating only the receiver cannot recover audio
+packets discarded by an older provider. This does not change remote source-acquisition deadlines or experimental resampling.
 
 **Dashboard > Physical Devices** shows source signal in the main table for each active Link stream slot.
 The provider associates observations with the stream's actual source channel and an opaque stream session identity, not the local slot

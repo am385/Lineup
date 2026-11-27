@@ -1002,6 +1002,17 @@
   <data name="Streaming_NoConsumersAttached" xml:space="preserve"><value>当前没有连接任何使用方。</value></data>
   <data name="Streaming_NodeAriaLabel" xml:space="preserve"><value>{0}，{1}，{2} 个活动会话</value></data>
   <data name="Streaming_None" xml:space="preserve"><value>无</value></data>
+  <data name="Streaming_OperationAudioAbsent" xml:space="preserve"><value>无音频</value></data>
+  <data name="Streaming_OperationAudioCopy" xml:space="preserve"><value>音频复制</value></data>
+  <data name="Streaming_OperationAudioTranscode" xml:space="preserve"><value>音频转码</value></data>
+  <data name="Streaming_OperationAudioUnknown" xml:space="preserve"><value>音频未知</value></data>
+  <data name="Streaming_OperationPassThrough" xml:space="preserve"><value>直通</value></data>
+  <data name="Streaming_OperationRemux" xml:space="preserve"><value>重新封装</value></data>
+  <data name="Streaming_OperationTransportUnknown" xml:space="preserve"><value>传输操作未知</value></data>
+  <data name="Streaming_OperationVideoAbsent" xml:space="preserve"><value>无视频</value></data>
+  <data name="Streaming_OperationVideoCopy" xml:space="preserve"><value>视频复制</value></data>
+  <data name="Streaming_OperationVideoTranscode" xml:space="preserve"><value>视频转码</value></data>
+  <data name="Streaming_OperationVideoUnknown" xml:space="preserve"><value>视频未知</value></data>
   <data name="Streaming_OutputStreamComponents" xml:space="preserve"><value>输出流组件</value></data>
   <data name="Streaming_RawPhysicalInput" xml:space="preserve"><value>原始物理输入</value></data>
   <data name="Streaming_RawPhysicalStreamComponents" xml:space="preserve"><value>原始物理流组件</value></data>
@@ -1035,6 +1046,8 @@
   <data name="Streaming_WarmProducerCountMany" xml:space="preserve"><value>{0} 个预热生产者</value></data>
   <data name="Streaming_WarmProducerCountOne" xml:space="preserve"><value>{0} 个预热生产者</value></data>
   <data name="Transcoding_Ac4Audio" xml:space="preserve"><value>AC-4 音频</value></data>
+  <data name="Transcoding_Ac4TimestampCompensation" xml:space="preserve"><value>AC-4 时间戳补偿（实验性）</value></data>
+  <data name="Transcoding_Ac4TimestampCompensationHelp" xml:space="preserve"><value>默认关闭。Lineup 转码 AC-4 时，允许根据时间戳填充或裁剪音频采样，以排查爆音或同步漂移。复制的 AC-4 和其他编解码器不受影响。无论此选项是否开启，AC-4 转码均使用 48 kHz。保存后开始新的播放会话以进行比较。</value></data>
   <data name="Transcoding_AlwaysTranscodeVideo" xml:space="preserve"><value>始终转码视频</value></data>
   <data name="Transcoding_AlwaysTranscodeVideoHelp" xml:space="preserve"><value>使用所选编码器和视频码率上限，将所有视频重新编码为 H.264。音频和传输开销需要额外带宽。</value></data>
   <data name="Transcoding_Audio" xml:space="preserve"><value>音频</value></data>
@@ -1091,6 +1104,7 @@
   <data name="Transcoding_MaximumVideoBitrate" xml:space="preserve"><value>最大视频比特率</value></data>
   <data name="Transcoding_NonAc4Audio" xml:space="preserve"><value>非 AC-4 音频</value></data>
   <data name="Transcoding_OverrideAc4Audio" xml:space="preserve"><value>覆盖 AC-4 音频</value></data>
+  <data name="Transcoding_OverrideAc4TimestampCompensation" xml:space="preserve"><value>覆盖 AC-4 时间戳补偿</value></data>
   <data name="Transcoding_OverrideAlwaysTranscodeVideo" xml:space="preserve"><value>覆盖始终转码视频设置</value></data>
   <data name="Transcoding_OverrideBitrate" xml:space="preserve"><value>覆盖比特率</value></data>
   <data name="Transcoding_OverrideDeinterlacing" xml:space="preserve"><value>覆盖去隔行设置</value></data>
@@ -1102,6 +1116,7 @@
   <data name="Transcoding_PresetFast" xml:space="preserve"><value>快速</value></data>
   <data name="Transcoding_PresetFaster" xml:space="preserve"><value>更快</value></data>
   <data name="Transcoding_PresetMedium" xml:space="preserve"><value>中等</value></data>
+  <data name="Transcoding_PresetUltraFast" xml:space="preserve"><value>超快</value></data>
   <data name="Transcoding_PresetVeryFast" xml:space="preserve"><value>非常快</value></data>
   <data name="Transcoding_Settings" xml:space="preserve"><value>转码设置</value></data>
   <data name="Transcoding_SoftwareEncoder" xml:space="preserve"><value>软件（安全默认值）</value></data>

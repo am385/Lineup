@@ -53,6 +53,9 @@ public interface IStreamSourceLease : IAsyncDisposable
     /// <summary>Gets producer-reported video encoding, or null when the source does not report an encoder.</summary>
     VideoEncodingSnapshot? VideoEncoding => null;
 
+    /// <summary>Gets producer-reported codec and transport operations.</summary>
+    StreamProcessingSnapshot? Processing => null;
+
     /// <summary>Gets process resource identities reported by this producer.</summary>
     IReadOnlyList<string> ResourceIds => [];
 }
@@ -120,6 +123,9 @@ public sealed record StreamNodeDiagnostics(string Kind, string Key, int Receiver
     /// <summary>Gets the encoder outcome reported by this running node.</summary>
     public VideoEncodingSnapshot? VideoEncoding { get; init; }
 
+    /// <summary>Gets the effective codec and transport operations of this node.</summary>
+    public StreamProcessingSnapshot? Processing { get; init; }
+
     /// <summary>Gets process resource identities belonging to this running producer.</summary>
     public IReadOnlyList<string> ResourceIds { get; init; } = [];
 }
@@ -166,13 +172,14 @@ public interface IStreamingSessionGraph
         CancellationToken cancellationToken = default
     );
 
-    /// <summary>Acquires an ordered reusable transform pipeline, retaining an unused leaf until its idle deadline regardless of incoming traffic.</summary>
+    /// <summary>Acquires an ordered reusable transform pipeline, optionally granting its processing-input subscriber bounded startup grace.</summary>
     ValueTask<IStreamSessionLease> AcquirePipelineAsync(
         StreamAcquisitionDescriptor descriptor,
         StreamAcquisitionFactory acquisitionFactory,
         IReadOnlyList<StreamTransformStage> stages,
         TimeSpan keepWarmPeriod,
-        CancellationToken cancellationToken = default
+        CancellationToken cancellationToken = default,
+        bool processingInput = false
     );
 
     /// <summary>Gets or creates metadata scoped to the lifetime of one shared physical acquisition.</summary>
@@ -226,6 +233,8 @@ public sealed record AcquisitionMetadataRefreshPolicy<T>
 public sealed class StreamingSessionGraph : IStreamingSessionGraph
 {
     private const int BufferSize = 64 * 1024;
+    // Allow discovery and initial draining without relaxing steady-state or memory limits.
+    private static readonly TimeSpan _processingStartupGrace = TimeSpan.FromSeconds(35);
     private readonly StreamBufferBudget _buffers;
     private readonly IPhysicalCapacityLeaseRegistry _capacity;
     private readonly ILogger<StreamingSessionGraph> _logger;
@@ -323,13 +332,15 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
     /// <param name="stages">The stages value.</param>
     /// <param name="keepWarmPeriod">The keep warm period value.</param>
     /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <param name="processingInput">Whether the subscriber feeds a processor needing one-time discovery and startup buffering.</param>
     /// <returns>The operation's result.</returns>
     public async ValueTask<IStreamSessionLease> AcquirePipelineAsync(
         StreamAcquisitionDescriptor descriptor,
         StreamAcquisitionFactory acquisitionFactory,
         IReadOnlyList<StreamTransformStage> stages,
         TimeSpan keepWarmPeriod,
-        CancellationToken cancellationToken = default
+        CancellationToken cancellationToken = default,
+        bool processingInput = false
     )
     {
         ArgumentNullException.ThrowIfNull(acquisitionFactory);
@@ -372,7 +383,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
                     node = GetOrCreateTransformNode(node, transformKey, stage.Transform);
                     key = transformKey;
                 }
-                if (cleanup is null && !node.TrySubscribe(keepWarmPeriod, out createdLease))
+                if (cleanup is null && !node.TrySubscribe(keepWarmPeriod, out createdLease, processingInput ? _processingStartupGrace : TimeSpan.Zero))
                 {
                     cleanup = node.Completion;
                 }
@@ -567,7 +578,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
                 var operationToken = operation.Token;
                 try
                 {
-                    await using var lease = await SubscribeNodeAsync(node, operationToken);
+                    await using var lease = await SubscribeNodeAsync(node, operationToken, _processingStartupGrace);
                     var value = (object?)await metadataFactory(lease.Stream, operationToken)
                         ?? throw new InvalidOperationException("Shared acquisition metadata cannot be null.");
                     operationToken.ThrowIfCancellationRequested();
@@ -749,7 +760,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
                 key,
                 async lifetime =>
                 {
-                    var input = await SubscribeNodeAsync(parent, lifetime);
+                    var input = await SubscribeNodeAsync(parent, lifetime, _processingStartupGrace);
                     try
                     {
                         var output = await transform.StartAsync(input.Stream, lifetime);
@@ -772,10 +783,10 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
                 _mediaWork));
     }
 
-    private static async ValueTask<IStreamSessionLease> SubscribeNodeAsync(SharedNode node, CancellationToken cancellationToken)
+    private static async ValueTask<IStreamSessionLease> SubscribeNodeAsync(SharedNode node, CancellationToken cancellationToken, TimeSpan startupGrace = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (!node.TrySubscribe(TimeSpan.Zero, out var lease))
+        if (!node.TrySubscribe(TimeSpan.Zero, out var lease, startupGrace))
         {
             throw new SharedParentStoppedException();
         }
@@ -889,6 +900,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         private long _totalSubscriptions;
         private bool _completed;
         private VideoEncodingSnapshot? _videoEncoding;
+        private StreamProcessingSnapshot? _processing;
         private IReadOnlyList<string> _resourceIds = [];
         private readonly string? _traceParent = System.Diagnostics.Activity.Current?.Id;
 
@@ -950,8 +962,9 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         /// <summary>Attempts to subscribe.</summary>
         /// <param name="keepWarmPeriod">The keep warm period value.</param>
         /// <param name="lease">The lease value.</param>
+        /// <param name="startupGrace">One-time input age grace for a transform's discovery and initial buffered-media drain.</param>
         /// <returns>The operation's result.</returns>
-        public bool TrySubscribe(TimeSpan keepWarmPeriod, out IStreamSessionLease lease)
+        public bool TrySubscribe(TimeSpan keepWarmPeriod, out IStreamSessionLease lease, TimeSpan startupGrace = default)
         {
             var id = Guid.NewGuid();
             lock (_gate)
@@ -962,7 +975,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
                     return false;
                 }
                 CancelWarmExpiration();
-                var subscription = _buffers.Subscribe(() => _ = RemoveEvictedSubscriberAsync(id));
+                var subscription = _buffers.Subscribe(eviction => _ = RemoveEvictedSubscriberAsync(id, eviction), startupGrace);
                 _subscribers.Add(id, new Subscriber(subscription, keepWarmPeriod));
                 _totalSubscriptions++;
                 _runTask ??= Task.Run(RunAsync);
@@ -991,6 +1004,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
                     SourceChannelId = (_key as AcquisitionNodeKey)?.AcquisitionKey.ChannelId,
                     Stage = (_key as TransformNodeKey)?.Transform.Stage,
                     VideoEncoding = _videoEncoding,
+                    Processing = _processing,
                     ResourceIds = _resourceIds
                 };
             }
@@ -1044,6 +1058,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
                 lock (_gate)
                 {
                     _videoEncoding = source.VideoEncoding;
+                    _processing = source.Processing;
                     _resourceIds = source.ResourceIds;
                 }
                 _started.TrySetResult();
@@ -1105,9 +1120,15 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
             }
         }
 
-        private async Task RemoveEvictedSubscriberAsync(Guid id)
+        private async Task RemoveEvictedSubscriberAsync(Guid id, StreamBufferBudget.Eviction eviction)
         {
-            _logger.LogWarning("Evicting a lagging consumer from shared {StreamKind} node {StreamKey}.", _kind, _key);
+            _logger.LogWarning(
+                "Evicting subscriber {SubscriberId} from shared {StreamKind} producer {ProducerNodeId}: {BufferLimit}. " +
+                "Queued {QueuedBytes} bytes in {QueuedEntries} entries, oldest {OldestUnreadAgeMs} ms; graph {GraphBufferedBytes} bytes. " +
+                "Limits: subscriber {SubscriberLimitBytes} bytes, graph {GraphLimitBytes} bytes, age {MaximumUnreadAgeMs} ms. " +
+                "One-time startup grace {StartupGraceMs} ms, elapsed {StartupAgeMs} ms.",
+                id, _kind, _key.NodeId, eviction.Reason, eviction.QueuedBytes, eviction.QueuedEntries, eviction.OldestAge.TotalMilliseconds,
+                eviction.GraphBytes, eviction.SubscriberLimit, eviction.GraphLimit, eviction.MaximumAge.TotalMilliseconds, eviction.StartupGrace.TotalMilliseconds, eviction.StartupAge.TotalMilliseconds);
             try
             {
                 await RemoveSubscriberAsync(id);
@@ -1255,6 +1276,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
             Stream = source.Stream;
             ContentType = source.ContentType;
             VideoEncoding = source.VideoEncoding;
+            Processing = source.Processing;
             ResourceIds = source.ResourceIds;
             _sourceOwner = source;
             _parentOwner = parentOwner;
@@ -1268,6 +1290,9 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
 
         /// <inheritdoc />
         public VideoEncodingSnapshot? VideoEncoding { get; }
+
+        /// <inheritdoc />
+        public StreamProcessingSnapshot? Processing { get; }
 
         /// <inheritdoc />
         public IReadOnlyList<string> ResourceIds { get; }

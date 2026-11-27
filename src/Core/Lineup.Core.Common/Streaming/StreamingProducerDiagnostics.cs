@@ -17,6 +17,9 @@ public sealed record StreamingProducerOutputDiagnostics(StreamSessionId OutputId
 /// <summary>Provides passive attribution for a producer independently of its viewers.</summary>
 public sealed record StreamingProducerContext(ActiveStreamFlowContext? Flow, string Channel)
 {
+    /// <summary>Gets effective codec and transport operations retained by this producer.</summary>
+    public StreamProcessingSnapshot? Processing { get; init; }
+
     /// <summary>Gets the actual encoder reported by the producer.</summary>
     public VideoEncodingSnapshot? VideoEncoding { get; init; }
 

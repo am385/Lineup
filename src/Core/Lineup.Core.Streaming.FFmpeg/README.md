@@ -11,10 +11,31 @@ Portable media processing, transcoding, hardware encoding and synthetic slate po
 ## MPEG-TS virtual outputs
 
 The MPEG-TS proxy preserves every audio track and every standalone subtitle codec the MPEG-TS muxer can represent
-(`dvb_subtitle` and `dvb_teletext`). It copies video and non-AC-4 audio while converting each AC-4 track to AC-3.
+(`dvb_subtitle` and `dvb_teletext`). By default it copies video and non-AC-4 audio while converting each AC-4 track to AC-3.
 Language, title, and disposition metadata are retained where the container supports them. Embedded CEA-608/708 data is
 retained with copied video and passed to the H.264 encoder when video conversion is enabled. Text/WebVTT, ASS, PGS, DVD,
 and other subtitle formats that MPEG-TS cannot carry are reported in diagnostics rather than mapped.
+
+When **AC-4 Audio** is **Copy**, both physical normalization and virtual MPEG-TS processing retain the original compressed
+AC-4 payload, including when video is software/GPU encoded or another audio track is converted. Lineup scopes FFmpeg's
+`-copyinkf` to copied AC-4 tracks, assigns their output PIDs explicitly, and restores the `AC-4` registration descriptor
+in the output program maps. This compensates for FFmpeg's initial-packet gate and missing MPEG-TS registration without
+changing the FFmpeg binary. It does not decode, resample, or retime copied audio, and does not add AC-4 support to clients
+that cannot decode it. Encoded AC-4 and experimental timestamp compensation retain their separate behavior.
+
+The shared producer repairs signaling before fan-out to viewers or dedicated workers. It validates PAT/PMT sections,
+handles split sections and descriptor growth, and updates table lengths, CRCs, versions and continuity without changing
+media/PCR bytes. Invalid or missing signaling fails explicitly rather than reporting video-only success. Table acquisition
+or an incomplete section can retain at most 4,096 transport packets (752 KiB plus parser state); PMT section lengths remain
+within the MPEG-TS 1,021-byte limit, with at most 256 active program maps.
+
+Each new virtual MPEG-TS transform probes its own input, including when source metadata was already cached.
+Like physical normalization, it allows up to 10 seconds of media analysis and 10,000,000 probe bytes.
+Shared subscriptions start at the current producer position, not at a replayed header or keyframe; broadcast program tables
+and codec initialization can recur beyond the former one-second/1,000,000-byte limits. Premature discovery could leave
+AC-4 with no sample rate/channels and fail MPEG-TS header creation, or leave video parameters unknown.
+These are bounded input-discovery limits, not a fixed sleep or an extension of Lineup Link's acquisition deadline.
+Sparse initialization may increase startup latency; unavailable or malformed initialization can still fail explicitly.
 
 ## Transcoding and shared stream graph
 

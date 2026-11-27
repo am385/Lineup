@@ -11,6 +11,110 @@ namespace Lineup.App.Web.Tests.Components;
 /// <summary>Verifies the accessible dashboard streaming-flow visualization and selected-node diagnostics.</summary>
 public sealed class StreamingFlowDiagramTests
 {
+    /// <summary>Compact cards expose independent operations and selected details retain every audio rendition and same-codec encode.</summary>
+    [Fact]
+    public async Task Render_ProcessingOperations_KeepCardsCompactAndExposeTrackDetails()
+    {
+        // Arrange
+        await using var context = new BunitContext();
+        ActiveStreamTrack[] tracks =
+        [
+            new(MediaTrackType.Video, "h264", "copy", null, null, 1920, 1080, null, null, null),
+            new(MediaTrackType.Audio, "ac3", "copy", null, null, null, null, 6, 6, 48000) { SourceIndex = 7, Language = "eng", OutputTitle = "Original" },
+            new(MediaTrackType.Audio, "ac3", "ac3", null, null, null, null, 6, 2, 48000) { SourceIndex = 7, Language = "eng", OutputTitle = "Stereo" }
+        ];
+        var processing = new StreamProcessingSnapshot(StreamTransportOperation.Remux, tracks) { VideoKnown = true, AudioKnown = true };
+        var stage = new StreamingFlowPathStage(StreamingFlowStageKind.OutputProcessing, "Remux", "", [])
+        {
+            Processing = processing,
+            VideoEncoding = new("copy", null, false)
+        };
+        var node = new StreamingFlowNode("output", StreamingFlowLane.VirtualProcessing, "Output", "", StreamingFlowState.Active, [])
+        {
+            ProcessingOutcomes = [processing],
+            VideoEncodings = [stage.VideoEncoding],
+            ActiveSessionCount = 1
+        };
+        var path = new StreamingFlowPath("path", "session", "Viewer", HostedStreamFormat.Cmaf, "7.1", DateTime.UtcNow, [stage], false, false, 1);
+        var snapshot = new StreamingFlowSnapshot([node], [path], 1, 1, 0)
+        {
+            Topology = new([node], [], [new("path", ["output"], [])], [])
+        };
+        var cut = context.Render<StreamingFlowDiagram>(parameters => parameters.Add(value => value.Snapshot, snapshot));
+        var card = cut.Find("[data-flow-node-id='output']");
+
+        // Act
+        await card.ClickAsync(new());
+
+        // Assert
+        Assert.Equal(4, card.QuerySelectorAll("[data-processing-operation]").Length);
+        Assert.Contains("Video Copy", card.TextContent);
+        Assert.Contains("Audio Copy", card.TextContent);
+        Assert.Contains("Audio Transcode", card.TextContent);
+        Assert.Contains("Remux", card.TextContent);
+        Assert.DoesNotContain("Stereo", card.TextContent);
+        Assert.Empty(card.QuerySelectorAll(".video-encoder-badge"));
+        Assert.Contains("Audio Transcode", card.GetAttribute("aria-label"));
+        var details = cut.Find("[data-flow-stage='OutputProcessing']");
+        Assert.Equal(3, details.QuerySelectorAll("[data-processing-track]").Length);
+        Assert.Contains("Original", details.TextContent);
+        Assert.Contains("Stereo", details.TextContent);
+        Assert.Contains("eng", details.TextContent);
+        Assert.Contains("ac3 → ac3", details.TextContent);
+    }
+
+    /// <summary>Unreported track presence remains unknown, whereas an explicit empty output mapping reports absence.</summary>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task Render_ProcessingPresence_DistinguishesUnknownAbsentAndPassThrough(bool reported, bool known)
+    {
+        // Arrange
+        await using var context = new BunitContext();
+        var processing = new StreamProcessingSnapshot(StreamTransportOperation.PassThrough, []) { AudioKnown = known, VideoKnown = known };
+
+        // Act
+        var cut = context.Render<StreamProcessingBadges>(parameters => parameters.Add(value => value.Outcomes, reported ? [processing] : []));
+
+        // Assert
+        Assert.Contains(known ? "No Audio" : "Audio Unknown", cut.Markup);
+        Assert.Contains(known ? "No Video" : "Video Unknown", cut.Markup);
+        Assert.Contains(reported ? "Pass-through" : "Transport Unknown", cut.Markup);
+        Assert.DoesNotContain("Audio Copy", cut.Markup);
+        Assert.DoesNotContain("Video Copy", cut.Markup);
+    }
+
+    /// <summary>A retained producer exposes known operations and per-track details without inventing an active consumer.</summary>
+    [Fact]
+    public async Task Render_WarmProcessing_KeepsReportedAudioDetailsWithoutConsumers()
+    {
+        // Arrange
+        await using var context = new BunitContext();
+        var processing = new StreamProcessingSnapshot(StreamTransportOperation.Remux,
+            [new(MediaTrackType.Audio, "ac4", "copy", null, null, null, null, 12, 12, 46034) { SourceIndex = 7, Language = "eng" }])
+        {
+            AudioKnown = true,
+            VideoKnown = true
+        };
+        var node = new StreamingFlowNode("warm", StreamingFlowLane.VirtualProcessing, "Remux", "", StreamingFlowState.Warm, [])
+        {
+            ProcessingOutcomes = [processing]
+        };
+        var cut = context.Render<StreamingFlowDiagram>(parameters => parameters.Add(value => value.Snapshot, new StreamingFlowSnapshot([node], [], 0, 0, 1)));
+
+        // Act
+        await cut.Find("[data-flow-node-id='warm']").ClickAsync(new());
+
+        // Assert
+        Assert.Contains("Audio Copy", cut.Find("[data-flow-node-id='warm']").TextContent);
+        Assert.Contains("No Video", cut.Find("[data-flow-node-id='warm']").TextContent);
+        Assert.Empty(cut.FindAll(".video-encoder-unknown"));
+        Assert.Single(cut.FindAll("#streamingFlowDetails [data-processing-track='7']"));
+        Assert.Contains("ac4 → ac4", cut.Find("#streamingFlowDetails").TextContent);
+        Assert.Empty(cut.FindAll("[data-flow-session-id]"));
+    }
+
     /// <summary>An older JS completion cannot mark a newer snapshot or selection as already rendered.</summary>
     [Theory]
     [InlineData(false)]
@@ -516,11 +620,13 @@ public sealed class StreamingFlowDiagramTests
 
         // Assert
         var badges = component.Find("[data-flow-stage] > .d-flex.flex-wrap.align-items-center.gap-2");
-        Assert.Equal(4, badges.QuerySelectorAll(":scope > .badge").Length);
+        Assert.Equal(6, badges.QuerySelectorAll(":scope > .badge").Length);
         Assert.NotNull(badges.QuerySelector(".video-encoder-badge"));
         Assert.NotNull(badges.QuerySelector(".video-encoder-fallback"));
         Assert.NotNull(badges.QuerySelector(".video-deinterlace"));
         Assert.NotNull(badges.QuerySelector(".video-gop-rate-unknown"));
+        Assert.Contains("Audio Unknown", badges.TextContent);
+        Assert.Contains("Transport Unknown", badges.TextContent);
     }
 
     /// <summary>Verifies actual GPU, software fallback and copy outcomes are visible without expanding a dashboard path or node.</summary>

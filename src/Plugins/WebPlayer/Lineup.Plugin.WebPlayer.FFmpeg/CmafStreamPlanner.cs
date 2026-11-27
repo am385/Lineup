@@ -590,7 +590,7 @@ public static class CmafStreamPlanner
         }
         for (var index = 0; index < audioRenditions.Count; index++)
         {
-            AddAudioArguments(arguments, audioRenditions[index], index);
+            AddAudioArguments(arguments, audioRenditions[index], index, profile.Ac4TimestampCompensation);
         }
         arguments.AddRange([
             "-f", "dash",
@@ -710,7 +710,7 @@ public static class CmafStreamPlanner
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)));
     }
 
-    private static void AddAudioArguments(List<string> arguments, CmafAudioRendition rendition, int outputIndex)
+    private static void AddAudioArguments(List<string> arguments, CmafAudioRendition rendition, int outputIndex, bool ac4TimestampCompensation)
     {
         var plan = rendition.Plan;
         var streamSpecifier = $":a:{outputIndex}";
@@ -738,9 +738,9 @@ public static class CmafStreamPlanner
             arguments.AddRange([
                 $"-c{streamSpecifier}", plan.Codec,
                 $"-b{streamSpecifier}", $"{plan.BitRate!.Value / 1_000}k",
-                $"-ar{streamSpecifier}", plan.SampleRate!.Value.ToString(),
                 $"-ac{streamSpecifier}", plan.Channels!.Value.ToString()
             ]);
+            AudioResamplePlanner.AddArguments(arguments, rendition.Source.Codec, outputIndex, ac4TimestampCompensation, plan.SampleRate!.Value);
         }
         arguments.AddRange([$"-metadata:s{streamSpecifier}", $"title={CreateAudioTitle(rendition.Source, plan.MediaTitle)}"]);
         if (!string.IsNullOrWhiteSpace(rendition.Source.Language))
