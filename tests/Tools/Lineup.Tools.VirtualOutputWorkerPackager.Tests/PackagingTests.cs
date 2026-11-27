@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Lineup.TestSupport;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -379,8 +380,8 @@ public sealed class PackagingTests
             start.ArgumentList.Add(argument);
         }
         using var process = Process.Start(start) ?? throw new InvalidOperationException("Unable to start the owned packaging regression process.");
-        var output = process.StandardOutput.ReadToEndAsync(deadline.Token);
-        var error = process.StandardError.ReadToEndAsync(deadline.Token);
+        var output = TestProcessSupport.DrainOutputAsync(process.StandardOutput);
+        var error = TestProcessSupport.DrainOutputAsync(process.StandardError);
         try
         {
             await process.WaitForExitAsync(deadline.Token);
@@ -391,11 +392,7 @@ public sealed class PackagingTests
         }
         finally
         {
-            if (!process.HasExited)
-            {
-                process.Kill(entireProcessTree: true);
-                await process.WaitForExitAsync(CancellationToken.None);
-            }
+            await TestProcessSupport.StopAndDrainAsync(process, output, error);
         }
     }
 

@@ -1,6 +1,7 @@
 using System.Data;
 using System.Data.Common;
 using System.Diagnostics;
+using Lineup.TestSupport;
 using System.IO.MemoryMappedFiles;
 using Lineup.Core.Storage;
 using Lineup.Core.Storage.Entities;
@@ -535,8 +536,8 @@ public sealed class EpgDatabaseSchemaTests
         start.Environment[ProcessDatabaseVariable] = path;
         start.Environment[ProcessStageVariable] = stage;
         using var process = Process.Start(start) ?? throw new InvalidOperationException("Unable to start the owned schema test process.");
-        var output = process.StandardOutput.ReadToEndAsync(cancellationToken);
-        var error = process.StandardError.ReadToEndAsync(cancellationToken);
+        var output = TestProcessSupport.DrainOutputAsync(process.StandardOutput);
+        var error = TestProcessSupport.DrainOutputAsync(process.StandardError);
         try
         {
             if (interrupt)
@@ -567,11 +568,7 @@ public sealed class EpgDatabaseSchemaTests
         }
         finally
         {
-            if (!process.HasExited)
-            {
-                process.Kill(entireProcessTree: true);
-                await process.WaitForExitAsync(CancellationToken.None);
-            }
+            await TestProcessSupport.StopAndDrainAsync(process, output, error);
         }
     }
 

@@ -7,6 +7,7 @@ using Lineup.Core.Streaming.FFmpeg;
 using Lineup.Core.VirtualOutputs.Protocol;
 using Lineup.Core.VirtualOutputs.Runtime;
 using Microsoft.Extensions.Logging.Abstractions;
+using Lineup.TestSupport;
 
 if (args is ["native-probe"])
 {
@@ -28,7 +29,7 @@ if (args is ["media", var executable, var report, var mode])
     using var media = mode == "barrier"
         ? OwnedMediaProcess.Start(startInfo, launched =>
         {
-            File.WriteAllText(report + ".barrier", launched.Id.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            AtomicTestReport.Write(report + ".barrier", launched.Id.ToString(System.Globalization.CultureInfo.InvariantCulture));
             Thread.Sleep(Timeout.Infinite);
         })
         : new MediaProcessFactory().Start(new MediaProcessRequest
@@ -82,8 +83,7 @@ if (args is ["worker", var packageRoot])
     var launcher = new VirtualOutputWorkerLauncher(NullLogger<VirtualOutputWorkerLauncher>.Instance);
     await using var worker = await launcher.StartAsync(package, bootstrap);
     var workerIdPath = Path.Combine(packageRoot, "worker.pid");
-    await File.WriteAllTextAsync(workerIdPath + ".tmp", worker.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
-    File.Move(workerIdPath + ".tmp", workerIdPath);
+    await AtomicTestReport.WriteAsync(workerIdPath, worker.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
     await Task.Delay(Timeout.InfiniteTimeSpan);
     return 0;
 }

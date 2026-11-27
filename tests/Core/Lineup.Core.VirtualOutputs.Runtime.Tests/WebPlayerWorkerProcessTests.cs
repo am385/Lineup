@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Lineup.TestSupport;
 using System.Net;
 using System.Net.Http.Json;
 using System.Net.Sockets;
@@ -343,8 +344,8 @@ public sealed class WebPlayerWorkerProcessTests
     private static async Task BuildHostAsync(ProcessStartInfo startInfo)
     {
         using var build = Process.Start(startInfo) ?? throw new InvalidOperationException("Unable to start the clean host build.");
-        var stdout = build.StandardOutput.ReadToEndAsync(TestContext.Current.CancellationToken);
-        var stderr = build.StandardError.ReadToEndAsync(TestContext.Current.CancellationToken);
+        var stdout = TestProcessSupport.DrainOutputAsync(build.StandardOutput);
+        var stderr = TestProcessSupport.DrainOutputAsync(build.StandardError);
         try
         {
             await build.WaitForExitAsync(TestContext.Current.CancellationToken);
@@ -352,11 +353,7 @@ public sealed class WebPlayerWorkerProcessTests
         }
         finally
         {
-            if (!build.HasExited)
-            {
-                build.Kill(entireProcessTree: true);
-                await build.WaitForExitAsync();
-            }
+            await TestProcessSupport.StopAndDrainAsync(build, stdout, stderr);
         }
     }
 
@@ -915,7 +912,7 @@ public sealed class WebPlayerWorkerProcessTests
         private WebPlayerWorkerHarness(
             VirtualOutputIpcServer server,
             VirtualOutputSessionAuthority authority,
-            Process worker,
+            (Process Worker, Task<string> Output, Task<string> Error) worker,
             HttpClient client,
             IActiveStreamRegistry activeStreams,
             string startLog,
@@ -924,13 +921,13 @@ public sealed class WebPlayerWorkerProcessTests
         {
             _server = server;
             _authority = authority;
-            _worker = worker;
+            _worker = worker.Worker;
             Client = client;
             ActiveStreams = activeStreams;
             _startLog = startLog;
             MediaAdmission = mediaAdmission;
-            _workerOutput = worker.StandardOutput.ReadToEndAsync();
-            _workerError = worker.StandardError.ReadToEndAsync();
+            _workerOutput = worker.Output;
+            _workerError = worker.Error;
         }
 
         /// <summary>Gets the current active streams.</summary>
@@ -1067,21 +1064,34 @@ public sealed class WebPlayerWorkerProcessTests
                 BootstrapExpiresUtc = ticket.ExpiresUtc
             };
             var startLog = Path.Combine(Path.GetTempPath(), $"lineup-media-starts-{Guid.NewGuid():N}.txt");
-            var worker = await StartWorkerAsync(bootstrap, mediaProcessorFails, startupMode, startLog, workerPath, cancellationToken);
-            var client = new HttpClient
-            {
-                BaseAddress = new Uri($"http://127.0.0.1:{port}"),
-                Timeout = TimeSpan.FromSeconds(35)
-            };
-            var harness = new WebPlayerWorkerHarness(server, authority, worker, client, activeStreams, startLog, mediaAdmission);
+            WebPlayerWorkerHarness? harness = null;
             try
             {
+                var worker = await StartWorkerAsync(bootstrap, mediaProcessorFails, startupMode, startLog, workerPath, cancellationToken);
+                var client = new HttpClient
+                {
+                    BaseAddress = new Uri($"http://127.0.0.1:{port}"),
+                    Timeout = TimeSpan.FromSeconds(35)
+                };
+                harness = new WebPlayerWorkerHarness(server, authority, worker, client, activeStreams, startLog, mediaAdmission);
                 await harness.WaitForReadyAsync(cancellationToken);
                 return harness;
             }
             catch
             {
-                await harness.DisposeAsync();
+                if (harness is not null)
+                {
+                    await harness.DisposeAsync();
+                }
+                else
+                {
+                    await server.StopAsync(CancellationToken.None);
+                    server.Dispose();
+                    authority.Dispose();
+                    File.Delete(startLog);
+                    File.Delete(startLog + ".ready");
+                    _activeStreamsContext.Value = null;
+                }
                 throw;
             }
         }
@@ -1117,16 +1127,21 @@ public sealed class WebPlayerWorkerProcessTests
         public async ValueTask DisposeAsync()
         {
             Client.Dispose();
-            await KillWorkerAsync();
-            TestContext.Current.TestOutputHelper?.WriteLine($"Worker stdout:{Environment.NewLine}{await _workerOutput}");
-            TestContext.Current.TestOutputHelper?.WriteLine($"Worker stderr:{Environment.NewLine}{await _workerError}");
-            await _server.StopAsync(CancellationToken.None);
-            _server.Dispose();
-            _authority.Dispose();
-            _worker.Dispose();
-            File.Delete(_startLog);
-            File.Delete(_startLog + ".ready");
-            _activeStreamsContext.Value = null;
+            try
+            {
+                await TestProcessSupport.StopAndDrainAsync(_worker, _workerOutput, _workerError);
+                TestContext.Current.TestOutputHelper?.WriteLine($"Worker stdout:{Environment.NewLine}{await _workerOutput}");
+                TestContext.Current.TestOutputHelper?.WriteLine($"Worker stderr:{Environment.NewLine}{await _workerError}");
+            }
+            finally
+            {
+                await _server.StopAsync(CancellationToken.None);
+                _server.Dispose();
+                _authority.Dispose();
+                File.Delete(_startLog);
+                File.Delete(_startLog + ".ready");
+                _activeStreamsContext.Value = null;
+            }
         }
 
         private async Task WaitForReadyAsync(CancellationToken cancellationToken)
@@ -1152,7 +1167,14 @@ public sealed class WebPlayerWorkerProcessTests
             throw new TimeoutException("The Web Player worker did not open its HTTP listener.");
         }
 
-        private static async Task<Process> StartWorkerAsync(VirtualOutputWorkerBootstrap bootstrap, bool mediaProcessorFails, string? startupMode, string startLog, string? workerPath, CancellationToken cancellationToken)
+        private static async Task<(Process Worker, Task<string> Output, Task<string> Error)> StartWorkerAsync(
+            VirtualOutputWorkerBootstrap bootstrap,
+            bool mediaProcessorFails,
+            string? startupMode,
+            string startLog,
+            string? workerPath,
+            CancellationToken cancellationToken
+        )
         {
             var packageRoot = Environment.GetEnvironmentVariable("LINEUP_TEST_WORKER_PACKAGE_ROOT");
             if (workerPath is null && !string.IsNullOrWhiteSpace(packageRoot))
@@ -1188,9 +1210,19 @@ public sealed class WebPlayerWorkerProcessTests
                 startInfo.Environment["LINEUP_FAKE_FFMPEG_FAIL"] = "1";
             }
             var worker = Process.Start(startInfo) ?? throw new InvalidOperationException("Unable to start the dedicated Web Player worker.");
-            worker.StandardInput.WriteLine(JsonSerializer.Serialize(bootstrap, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
-            worker.StandardInput.Close();
-            return worker;
+            var output = TestProcessSupport.DrainOutputAsync(worker.StandardOutput);
+            var error = TestProcessSupport.DrainOutputAsync(worker.StandardError);
+            try
+            {
+                await worker.StandardInput.WriteLineAsync(JsonSerializer.Serialize(bootstrap, new JsonSerializerOptions(JsonSerializerDefaults.Web)).AsMemory(), cancellationToken);
+                worker.StandardInput.Close();
+                return (worker, output, error);
+            }
+            catch
+            {
+                await TestProcessSupport.StopAndDrainAsync(worker, output, error);
+                throw;
+            }
         }
 
         private static string ResolveFakeMediaProcessorPath()

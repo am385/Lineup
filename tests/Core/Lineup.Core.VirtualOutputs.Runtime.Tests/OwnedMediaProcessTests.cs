@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using Lineup.Core.Common.Streaming;
 using Lineup.Core.Streaming.FFmpeg;
+using Lineup.TestSupport;
 using NSubstitute;
 using Xunit;
 
@@ -71,7 +72,7 @@ public sealed class OwnedMediaProcessTests
             RedirectStandardInput = true,
             RedirectStandardOutput = true
         });
-        var diagnostics = process.StandardError.ReadToEndAsync(TestContext.Current.CancellationToken);
+        var diagnostics = TestProcessSupport.DrainOutputAsync(process.StandardError);
         try
         {
             // Act
@@ -90,7 +91,7 @@ public sealed class OwnedMediaProcessTests
         }
         finally
         {
-            await KillAsync(process);
+            await TestProcessSupport.StopAndDrainAsync(process, diagnostics);
         }
     }
 

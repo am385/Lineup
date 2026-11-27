@@ -3,6 +3,7 @@ using Lineup.Core.Common.Streaming;
 using Lineup.Core.Extensibility.Streaming;
 using Lineup.Core.Streaming.FFmpeg;
 using Lineup.Plugin.WebPlayer.FFmpeg;
+using Lineup.TestSupport;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -635,7 +636,8 @@ public sealed class HardwareVideoEncodingTests
     public async Task VerifyAsync_UnavailableEncoder_RequiresExplicitFallback(bool fallback, bool exitBeforeReturn)
     {
         // Arrange
-        var factory = new MissingEncoderFactory(exitBeforeReturn);
+        await using var factory = new MissingEncoderFactory();
+        await factory.PrepareAsync(exitBeforeReturn, TestContext.Current.CancellationToken);
         var settings = new HardwareEncodingSettings { Encoder = HardwareVideoEncoder.Nvenc, AllowSoftwareFallback = fallback };
 
         // Act
@@ -767,18 +769,6 @@ public sealed class HardwareVideoEncodingTests
         Assert.True(input.CanRead);
     }
 
-    private static Task ObserveExit(Process process)
-    {
-        var exited = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        process.Exited += (_, _) => exited.TrySetResult();
-        process.EnableRaisingEvents = true;
-        if (process.HasExited)
-        {
-            exited.TrySetResult();
-        }
-        return exited.Task;
-    }
-
     private sealed class ScriptedEncoderFactory(HardwareVideoEncoder encoder, bool failPlayback = false) : IMediaProcessFactory
     {
         /// <summary>Gets exit signals retained independently of the probes' and transform's process wrappers.</summary>
@@ -816,19 +806,52 @@ public sealed class HardwareVideoEncodingTests
                     request.Arguments.Contains("testsrc2=size=128x128:rate=25") ? string.Empty : "transport-prefix");
             }
             var process = OwnedMediaProcess.Start(start);
-            ProcessExits.Add(ObserveExit(process));
+            ProcessExits.Add(TestProcessSupport.ObserveExit(process));
             return process;
         }
     }
 
-    private sealed class MissingEncoderFactory(bool exitBeforeReturn = false) : IMediaProcessFactory
+    private sealed class MissingEncoderFactory : IMediaProcessFactory, IAsyncDisposable
     {
+        private Process? _prepared;
+
         /// <summary>Gets exit signals retained after runtime verification disposes each original process wrapper.</summary>
         public List<Task> ProcessExits { get; } = [];
+
+        /// <summary>Establishes already-exited state during Arrange, outside the hardware verification deadline.</summary>
+        /// <param name="exitBeforeReturn">Whether the probe must already have exited before ownership transfer.</param>
+        /// <param name="cancellationToken">The test setup cancellation token.</param>
+        internal async Task PrepareAsync(bool exitBeforeReturn, CancellationToken cancellationToken)
+        {
+            if (exitBeforeReturn)
+            {
+                _prepared = await TestProcessSupport.StartExitedAsync(CreateStart(), cancellationToken);
+            }
+        }
 
         /// <inheritdoc />
         public Process Start(MediaProcessRequest request)
         {
+            var process = _prepared ?? Process.Start(CreateStart()) ?? throw new InvalidOperationException("The controlled test process could not start.");
+            _prepared = null;
+            ProcessExits.Add(TestProcessSupport.ObserveExit(process));
+            return process;
+        }
+
+        /// <inheritdoc />
+        public async ValueTask DisposeAsync()
+        {
+            if (_prepared is not null)
+            {
+                await TestProcessSupport.StopAndDrainAsync(_prepared);
+                _prepared = null;
+            }
+        }
+
+        private static ProcessStartInfo CreateStart()
+        {
+            var configuration = new DirectoryInfo(AppContext.BaseDirectory).Name;
+            var executable = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "Lineup.TestSupport.FakeFFmpeg", configuration, "Lineup.TestSupport.FakeFFmpeg.dll"));
             var start = new ProcessStartInfo("dotnet")
             {
                 UseShellExecute = false,
@@ -836,17 +859,10 @@ public sealed class HardwareVideoEncodingTests
                 RedirectStandardOutput = true,
                 RedirectStandardError = true
             };
-            start.ArgumentList.Add("--list-runtimes");
-            var process = Process.Start(start) ?? throw new InvalidOperationException("The owned test process could not start.");
-            if (exitBeforeReturn && !process.WaitForExit(10_000))
-            {
-                process.Kill(entireProcessTree: true);
-                process.WaitForExit();
-                process.Dispose();
-                throw new TimeoutException("The encoder-listing test process did not exit.");
-            }
-            ProcessExits.Add(ObserveExit(process));
-            return process;
+            start.ArgumentList.Add(executable);
+            start.ArgumentList.Add("probe-json");
+            start.ArgumentList.Add(string.Empty);
+            return start;
         }
     }
 }

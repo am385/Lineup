@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Lineup.TestSupport;
 using System.Text;
 using System.Text.RegularExpressions;
 using Xunit;
@@ -141,8 +142,8 @@ public class ProtectedContentSlateServiceTests
             start.ArgumentList.Add(argument);
         }
         using var process = Process.Start(start) ?? throw new InvalidOperationException("Native slate FFmpeg did not start.");
-        var diagnostics = Task.Run(() => process.StandardError.ReadToEndAsync());
-        var frames = Task.Run(() => process.StandardOutput.ReadToEndAsync());
+        var diagnostics = TestProcessSupport.DrainOutputAsync(process.StandardError);
+        var frames = TestProcessSupport.DrainOutputAsync(process.StandardOutput);
         try
         {
             await process.WaitForExitAsync(watchdog.Token);

@@ -8,6 +8,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\..\..\TestSupport\ControlledTimeProvider.cs" Link="TestSupport\ControlledTimeProvider.cs" />
+    <Compile Include="..\..\..\TestSupport\TestProcessSupport.cs" Link="TestSupport\TestProcessSupport.cs" />
     <ProjectReference Include="..\..\..\TestSupport\Lineup.TestSupport.FakeFFmpeg\Lineup.TestSupport.FakeFFmpeg.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\..\..\src\Core\Lineup.Core.Extensibility\Lineup.Core.Extensibility.csproj" />
     <ProjectReference Include="..\..\..\..\src\Plugins\WebPlayer\Lineup.Plugin.WebPlayer\Lineup.Plugin.WebPlayer.csproj" />

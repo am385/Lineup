@@ -18,6 +18,8 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\..\TestSupport\ControlledTimeProvider.cs" Link="TestSupport\ControlledTimeProvider.cs" />
+    <Compile Include="..\..\TestSupport\TestProcessSupport.cs" Link="TestSupport\TestProcessSupport.cs" />
+    <Compile Include="..\..\TestSupport\AtomicTestReport.cs" Link="TestSupport\AtomicTestReport.cs" />
     <ProjectReference Include="..\..\..\src\Core\Lineup.Core.VirtualOutputs.Hosting\Lineup.Core.VirtualOutputs.Hosting.csproj" />
     <ProjectReference Include="..\..\..\src\Core\Lineup.Core.VirtualOutputs.Runtime\Lineup.Core.VirtualOutputs.Runtime.csproj" />
     <ProjectReference Include="..\..\..\src\Plugins\WebPlayer\Lineup.Plugin.WebPlayer.VirtualOutputHost\Lineup.Plugin.WebPlayer.VirtualOutputHost.csproj" />

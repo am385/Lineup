@@ -484,7 +484,7 @@ public sealed class FfmpegStreamDiagnosticsTests
         });
         await using var source = new MemoryStream(input ?? []);
         await using var output = new MemoryStream();
-        var diagnostics = process.StandardError.ReadToEndAsync(watchdog.Token);
+        var diagnostics = TestProcessSupport.DrainOutputAsync(process.StandardError);
         var drain = process.StandardOutput.BaseStream.CopyToAsync(output, watchdog.Token);
         var pump = MediaStreamPump.PumpAsync(source, process, NullLogger.Instance, "native MPEG-TS regression", watchdog.Token);
         try
