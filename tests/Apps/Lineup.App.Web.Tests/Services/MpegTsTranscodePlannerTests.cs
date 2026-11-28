@@ -7,6 +7,38 @@ namespace Lineup.App.Web.Tests.Services;
 /// </summary>
 public class MpegTsTranscodePlannerTests
 {
+    /// <summary>Every software-encoded MPEG-TS video receives frame threading, while copied videos retain their original policy.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SoftwareFrameThreading_ScopesEveryEncodedVideoAndPreservesHeaders(bool forceAllVideos)
+    {
+        // Arrange
+        var profile = new VirtualTranscodeProfile { AlwaysTranscodeVideo = forceAllVideos, ConvertHevcToH264 = true };
+
+        // Act
+        var arguments = MpegTsTranscodePlanner.CreateFfmpegArguments(
+            _inputUri, "hevc", [new(7, "aac", 2)], profile, sourceVideoStreamCount: 2);
+
+        // Assert
+        AssertOption(arguments, "-tune:v:0", "zerolatency");
+        AssertOption(arguments, "-x264-params:v:0", "sliced-threads=0:repeat-headers=1");
+        AssertOption(arguments, "-a53cc:v:0", "1");
+        AssertOption(arguments, "-mpegts_flags", "+resend_headers");
+        Assert.DoesNotContain(arguments, argument => argument.StartsWith("-threads", StringComparison.Ordinal));
+        Assert.Equal(forceAllVideos ? 2 : 1, arguments.Count(argument => argument.StartsWith("-x264-params", StringComparison.Ordinal)));
+        if (forceAllVideos)
+        {
+            AssertOption(arguments, "-tune:v:1", "zerolatency");
+            AssertOption(arguments, "-x264-params:v:1", "sliced-threads=0");
+        }
+        else
+        {
+            Assert.DoesNotContain("-tune:v:1", arguments);
+            Assert.DoesNotContain("-x264-params:v:1", arguments);
+        }
+    }
+
     /// <summary>Effective argument reporting distinguishes same-codec encoding from copy and never treats remux as codec conversion.</summary>
     [Theory]
     [InlineData(false, OutputAudioPolicy.Copy)]
@@ -174,6 +206,14 @@ public class MpegTsTranscodePlannerTests
             AssertOption(arguments, "-maxrate", "3M");
             AssertOption(arguments, "-bufsize", "6M");
         }
+        if (force && encoder == HardwareVideoEncoder.Software)
+        {
+            AssertOption(arguments, "-x264-params:v:0", "sliced-threads=0:repeat-headers=1");
+        }
+        else
+        {
+            Assert.DoesNotContain(arguments, argument => argument.StartsWith("-x264-params", StringComparison.Ordinal));
+        }
         Assert.DoesNotContain("-c:a:0", arguments);
         Assert.DoesNotContain("-filter:v:0", arguments);
     }
@@ -281,7 +321,7 @@ public class MpegTsTranscodePlannerTests
         AssertOption(arguments, "-preset", "veryfast");
         AssertOption(arguments, "-maxrate", "10M");
         AssertOption(arguments, "-pix_fmt:v:0", "yuv420p");
-        AssertOption(arguments, "-x264-params:v:0", "repeat-headers=1");
+        AssertOption(arguments, "-x264-params:v:0", "sliced-threads=0:repeat-headers=1");
         Assert.DoesNotContain("0:s?", arguments);
         Assert.DoesNotContain("0:d?", arguments);
         AssertOption(arguments, "-c", "copy");

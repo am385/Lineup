@@ -122,7 +122,7 @@ public static class MpegTsTranscodePlanner
             [
                 profile.AlwaysTranscodeVideo ? "-c:v" : "-c:v:0", "libx264",
                 "-preset", profile.VideoPreset.ToString().ToLowerInvariant(),
-                "-tune", "zerolatency",
+                .. SoftwareVideoEncodingPlanner.CreateLowLatencyArguments(0, repeatHeaders: true),
                 "-crf", profile.VideoQuality.ToString(),
                 "-maxrate", $"{profile.MaximumVideoBitRateMbps}M",
                 "-bufsize", $"{profile.MaximumVideoBitRateMbps * 2}M",
@@ -133,9 +133,15 @@ public static class MpegTsTranscodePlanner
                 "-flags:v:0", "+cgop",
                 "-g:v:0", "120",
                 "-keyint_min:v:0", "60",
-                "-sc_threshold:v:0", "0",
-                "-x264-params:v:0", "repeat-headers=1"
+                "-sc_threshold:v:0", "0"
             ]);
+            if (profile.AlwaysTranscodeVideo)
+            {
+                for (var videoIndex = 1; videoIndex < sourceVideoStreamCount; videoIndex++)
+                {
+                    arguments.AddRange(SoftwareVideoEncodingPlanner.CreateLowLatencyArguments(videoIndex));
+                }
+            }
             if (deinterlace)
             {
                 arguments.AddRange([

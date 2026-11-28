@@ -902,7 +902,7 @@ public static class CmafStreamPlanner
         };
         arguments.AddRange([
             $"-c{streamSpecifier}", "libx264", $"-preset{streamSpecifier}", profile.VideoPreset.ToString().ToLowerInvariant(),
-            "-tune", "zerolatency", "-crf", crf.ToString(),
+            .. SoftwareVideoEncodingPlanner.CreateLowLatencyArguments(outputIndex), "-crf", crf.ToString(),
             $"-maxrate{streamSpecifier}", $"{maximumBitRate}M", $"-bufsize{streamSpecifier}", $"{maximumBitRate * 2}M",
             $"-profile{streamSpecifier}", "high", $"-level{streamSpecifier}", "4.2", $"-pix_fmt{streamSpecifier}", "yuv420p",
             "-flags", "+cgop", qsvGopFrames is null ? "-g" : $"-g{streamSpecifier}", (qsvGopFrames ?? 120).ToString(System.Globalization.CultureInfo.InvariantCulture),

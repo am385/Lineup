@@ -12,6 +12,35 @@ namespace Lineup.App.Web.Tests.Services;
 [Collection("FFmpeg process diagnostics")]
 public class ProtectedContentSlateServiceTests
 {
+    /// <summary>All slate transports share software frame threading without changing their video cadence or synthetic-content identity.</summary>
+    [Theory]
+    [InlineData(ChannelSlateReason.ContentProtected)]
+    [InlineData(ChannelSlateReason.DisabledChannel)]
+    public void SlateEncoding_AllTransportsUseSharedSoftwareThreading(ChannelSlateReason reason)
+    {
+        // Arrange
+        var plans = new[]
+        {
+            ProtectedContentSlatePlanner.CreatePipeArguments(HostedStreamFormat.MpegTs, "2.1", reason),
+            ProtectedContentSlatePlanner.CreateHlsArguments("2.1", "stream.m3u8", reason),
+            ProtectedContentSlatePlanner.CreateCmafArguments("2.1", "manifest.mpd", reason)
+        };
+
+        // Act
+        var arguments = plans.Select(plan => plan.ToList()).ToArray();
+
+        // Assert
+        foreach (var plan in arguments)
+        {
+            Assert.Equal("zerolatency", plan[plan.IndexOf("-tune:v:0") + 1]);
+            Assert.Equal("sliced-threads=0", plan[plan.IndexOf("-x264-params:v:0") + 1]);
+            Assert.Single(plan, argument => argument.StartsWith("-x264-params", StringComparison.Ordinal));
+            Assert.DoesNotContain(plan, argument => argument.StartsWith("-threads", StringComparison.Ordinal));
+            Assert.Equal("60", plan[plan.IndexOf("-g") + 1]);
+            Assert.Contains("color=c=0x20252b:s=1280x720:r=30", plan);
+        }
+    }
+
     /// <summary>Gets literal channel values exercising both FFmpeg parser layers and disabled text expansion.</summary>
     public static TheoryData<string, ChannelSlateReason> LiteralChannelValues
     {

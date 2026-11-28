@@ -153,7 +153,7 @@ public static class SourceDeinterlacePlanner
             [
                 "-c:v:0", "libx264",
                 "-preset:v:0", profile.VideoPreset.ToString().ToLowerInvariant(),
-                "-tune:v:0", "zerolatency",
+                .. SoftwareVideoEncodingPlanner.CreateLowLatencyArguments(0, repeatHeaders: true),
                 "-crf:v:0", profile.VideoQuality.ToString(),
                 "-maxrate:v:0", $"{profile.MaximumVideoBitRateMbps}M",
                 "-bufsize:v:0", $"{profile.MaximumVideoBitRateMbps * 2}M",
@@ -165,8 +165,7 @@ public static class SourceDeinterlacePlanner
                 "-g:v:0", "120",
                 "-keyint_min:v:0", "60",
                 "-sc_threshold:v:0", "0",
-                "-force_key_frames:v:0", "expr:gte(t,n_forced*2)",
-                "-x264-params:v:0", "repeat-headers=1"
+                "-force_key_frames:v:0", "expr:gte(t,n_forced*2)"
             ]);
             if (deinterlace)
             {

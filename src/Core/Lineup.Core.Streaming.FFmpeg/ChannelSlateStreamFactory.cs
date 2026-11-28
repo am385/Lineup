@@ -193,7 +193,9 @@ public static class ChannelSlatePlanner
             "-re", "-f", "lavfi", "-i", "color=c=0x20252b:s=1280x720:r=30",
             "-re", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
             "-vf", filter,
-            "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-pix_fmt", "yuv420p", "-g", "60",
+            "-c:v", "libx264", "-preset", "ultrafast",
+            .. SoftwareVideoEncodingPlanner.CreateLowLatencyArguments(0),
+            "-pix_fmt", "yuv420p", "-g", "60",
             "-c:a", "aac", "-b:a", "128k", "-ac", "2", "-ar", "44100", "-shortest"
         ];
     }
