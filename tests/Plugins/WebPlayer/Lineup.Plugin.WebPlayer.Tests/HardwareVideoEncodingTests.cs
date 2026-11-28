@@ -88,6 +88,15 @@ public sealed class HardwareVideoEncodingTests
 
         // Assert
         Assert.Equal(expectedEncoder, arguments[arguments.IndexOf("-c:v:0") + 1]);
+        if (encoder == HardwareVideoEncoder.Software)
+        {
+            Assert.Contains("-x264-params:v:0", arguments);
+            Assert.Equal("sliced-threads=0", arguments[arguments.IndexOf("-x264-params:v:0") + 1]);
+        }
+        else
+        {
+            Assert.DoesNotContain(arguments, argument => argument.StartsWith("-x264-params", StringComparison.Ordinal));
+        }
         Assert.Equal("3M", arguments[arguments.IndexOf("-maxrate:v:0") + 1]);
         Assert.Equal("6M", arguments[arguments.IndexOf("-bufsize:v:0") + 1]);
         Assert.NotNull(processing);
@@ -278,6 +287,15 @@ public sealed class HardwareVideoEncodingTests
         Assert.Equal("120", arguments[arguments.IndexOf("-g") + 1]);
         Assert.DoesNotContain(arguments, value => value.Contains("bwdif", StringComparison.Ordinal));
         Assert.False(CmafStreamPlanner.CreateVideoProcessing(profile, source, selection, request)!.AutomaticDeinterlace);
+        if (encoder == HardwareVideoEncoder.Software)
+        {
+            Assert.Contains("-x264-params:v:0", arguments);
+            Assert.Equal("sliced-threads=0", arguments[arguments.IndexOf("-x264-params:v:0") + 1]);
+        }
+        else
+        {
+            Assert.DoesNotContain(arguments, argument => argument.StartsWith("-x264-params", StringComparison.Ordinal));
+        }
     }
 
     /// <summary>Verifies all supported backends replace x264 only in actual physical and virtual video transforms.</summary>

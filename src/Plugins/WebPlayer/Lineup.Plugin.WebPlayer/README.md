@@ -91,6 +91,10 @@ unexpected roughly four-second segments; source-copy renditions retain their ori
 The opt-in streaming sweep verifies retained MP4 timestamps against DASH timelines for both DASH and HLS.
 Independent audio/video segment numbers and buffered endpoints are diagnostics, not lip-sync measurements.
 
+Software H.264 CMAF uses automatic frame threading for better throughput, with additional encoder memory and
+buffering. This applies in management and dedicated hosting, including software retries; copy and hardware
+encoding remain unchanged.
+
 Watch and Watch Test stop their owned server viewer before awaiting browser-player destruction, so a delayed
 or failed Shaka teardown cannot skip the server stop. Stop requests retain `keepalive` for navigation and
 check HTTP responses; HTTP 404 means the viewer is already absent, while other failures are surfaced.

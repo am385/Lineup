@@ -120,6 +120,18 @@ public class SourceDeinterlacePlannerTests
         AssertOption(arguments, "-c:v:0", expectedEncoder);
         AssertOption(arguments, "-maxrate:v:0", "3M");
         Assert.DoesNotContain("-filter:v:0", arguments);
+        if (encoder == HardwareVideoEncoder.Software)
+        {
+            AssertOption(arguments, "-tune:v:0", "zerolatency");
+            AssertOption(arguments, "-x264-params:v:0", "sliced-threads=0:repeat-headers=1");
+            Assert.Single(arguments, argument => argument.StartsWith("-x264-params", StringComparison.Ordinal));
+            Assert.DoesNotContain(arguments, argument => argument.StartsWith("-threads", StringComparison.Ordinal));
+            AssertOption(arguments, "-a53cc:v:0", "1");
+        }
+        else
+        {
+            Assert.DoesNotContain(arguments, argument => argument.StartsWith("-x264-params", StringComparison.Ordinal));
+        }
         var video = Assert.Single(effective.Tracks, track => track.Type == MediaTrackType.Video);
         Assert.Equal(3_000_000, video.BitRate);
         Assert.Equal(new MediaFrameRate(25, 1), video.FrameRate);
@@ -176,6 +188,7 @@ public class SourceDeinterlacePlannerTests
         AssertOption(arguments, "-preset:v:0", "fast");
         AssertOption(arguments, "-crf:v:0", "18");
         AssertOption(arguments, "-maxrate:v:0", "16M");
+        AssertOption(arguments, "-x264-params:v:0", "sliced-threads=0:repeat-headers=1");
     }
 
     /// <summary>Verifies physical audio policies trigger one shared transform before multiplexing.</summary>
@@ -203,6 +216,7 @@ public class SourceDeinterlacePlannerTests
         // Assert
         Assert.True(SourceDeinterlacePlanner.ShouldNormalize(source, profile));
         Assert.DoesNotContain("-c:v:0", arguments);
+        Assert.DoesNotContain(arguments, argument => argument.StartsWith("-x264-params", StringComparison.Ordinal));
         Assert.DoesNotContain("-copyts", arguments);
         Assert.DoesNotContain("-fps_mode:v:0", arguments);
         AssertOption(arguments, "-c:a:0", "ac3");

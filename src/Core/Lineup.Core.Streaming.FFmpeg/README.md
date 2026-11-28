@@ -41,6 +41,11 @@ Sparse initialization may increase startup latency; unavailable or malformed ini
 
 Virtual Tuner Video can optionally transcode HEVC to H.264 for clients that cannot process HEVC Live TV, at the cost of CPU and generation loss. Virtual Tuner Audio can preserve non-AC-4 codecs or transcode those tracks to AC-3/E-AC-3. AC-4 can be preserved for compatible receivers or transcoded separately. Audio above 5.1 channels is capped at 5.1 when transcoded. Transcoding is configured through inherited physical and virtual device profiles; topology routes reject unsupported per-request HDHomeRun hardware profile parameters.
 
+Software H.264 uses a shared automatic frame-threading policy across physical normalization, virtual MPEG-TS,
+Web Player CMAF and channel slates. This improves encoding throughput at the cost of additional memory and
+encoder buffering. Copy and hardware encoding, quality settings, MPEG-TS repeat headers and caption handling
+remain unchanged.
+
 ## Tuning retained physical normalization
 
 For software H.264 normalization, **VeryFast** is the lowest-CPU preset currently exposed by Lineup.

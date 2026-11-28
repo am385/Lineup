@@ -9,6 +9,33 @@ namespace Lineup.Plugin.WebPlayer.Tests;
 /// </summary>
 public class CmafStreamPlannerTests
 {
+    /// <summary>Verifies software CMAF encoding enables frame threading without imposing a thread count or changing quality.</summary>
+    [Theory]
+    [InlineData("mpeg2video", CmafPreferredVideo.Source)]
+    [InlineData("h264", CmafPreferredVideo.Fallback)]
+    public void CreateArguments_SoftwareFrameThreading_PreservesAutomaticThreadsAndQuality(string codec, CmafPreferredVideo preferred)
+    {
+        // Arrange
+        var source = Source("aac") with { Tracks = [Track(0, MediaTrackType.Video, codec), Source("aac").Tracks[1]] };
+        var profile = new VirtualTranscodeProfile { VideoQuality = 19, MaximumVideoBitRateMbps = 7 };
+        var request = new CmafStreamRequest { PreferredVideo = preferred };
+        var selection = CmafStreamPlanner.SelectTracks(source, request);
+
+        // Act
+        var arguments = CmafStreamPlanner.CreateArguments(profile, source, selection, request, "manifest.mpd");
+
+        // Assert
+        AssertOption(arguments, "-c:v:0", "libx264");
+        AssertOption(arguments, "-x264-params:v:0", "sliced-threads=0");
+        Assert.Single(arguments, argument => argument.StartsWith("-x264-params", StringComparison.Ordinal));
+        Assert.DoesNotContain(arguments, argument => argument.StartsWith("-threads", StringComparison.Ordinal));
+        AssertOption(arguments, "-tune:v:0", "zerolatency");
+        AssertOption(arguments, "-preset:v:0", "veryfast");
+        AssertOption(arguments, "-crf", "19");
+        AssertOption(arguments, "-maxrate:v:0", "7M");
+        AssertOption(arguments, "-bufsize:v:0", "14M");
+    }
+
     /// <summary>Verifies only opted-in encoded AC-4 renditions receive timestamp compensation and all encoded renditions retain 48 kHz output.</summary>
     [Theory]
     [InlineData("ac4", CmafPreferredAudio.Fallback, CmafFallbackAudio.Ac3, false)]
@@ -139,6 +166,7 @@ public class CmafStreamPlannerTests
         {
             AssertOption(arguments, "-c:v:0", "copy");
             Assert.DoesNotContain("-force_key_frames:v:0", arguments);
+            Assert.DoesNotContain(arguments, argument => argument.StartsWith("-x264-params", StringComparison.Ordinal));
         }
     }
 
@@ -618,6 +646,7 @@ public class CmafStreamPlannerTests
 
         // Assert
         AssertOption(arguments, "-c:v:0", "libx264");
+        AssertOption(arguments, "-x264-params:v:0", "sliced-threads=0");
         AssertOption(arguments, "-filter:v:0", "bwdif=mode=send_field:parity=auto:deint=interlaced,scale=-2:min(720\\,ih)");
         Assert.Contains("-copyts", arguments);
         Assert.Contains("-start_at_zero", arguments);
@@ -653,6 +682,7 @@ public class CmafStreamPlannerTests
         Assert.Contains("-start_at_zero", arguments);
         AssertOption(arguments, "-fps_mode:v:0", "passthrough");
         Assert.Contains(arguments, argument => argument.Contains("bwdif=mode=send_frame", StringComparison.Ordinal));
+        AssertOption(arguments, "-x264-params:v:0", "sliced-threads=0");
     }
 
     /// <summary>
